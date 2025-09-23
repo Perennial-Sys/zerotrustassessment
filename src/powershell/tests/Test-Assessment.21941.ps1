@@ -155,44 +155,6 @@ function Test-Assessment-21941{
 
             $mdInfo += "| $policyName | $policyState | $($policyDetail.IncludeUsers) | $($policyDetail.IncludeApplications) | $tokenProtectionStatus |`n"
         }
-        $mdInfo += "`n"
-
-        # Show detailed information for policies that meet criteria
-        $passingPolicies = $allPolicyDetails | Where-Object { $_.TokenProtectionEnabled }
-        if ($passingPolicies.Count -gt 0) {
-            $mdInfo += "## ✅ Policies Meeting Token Protection Criteria ($($passingPolicies.Count))`n`n"
-
-            foreach ($policyDetail in $passingPolicies) {
-                $portalLink = "https://entra.microsoft.com/#view/Microsoft_AAD_ConditionalAccess/PolicyBlade/policyId/$($policyDetail.PolicyId)"
-                $mdInfo += "### [$(Get-SafeMarkdown($policyDetail.DisplayName))]($portalLink)`n"
-                $mdInfo += "- **Policy ID:** $($policyDetail.PolicyId)`n"
-                $mdInfo += "- **State:** $($policyDetail.State)`n"
-                $mdInfo += "- **Include Users:** $($policyDetail.IncludeUsers)`n"
-                $mdInfo += "- **Include Applications:** $($policyDetail.IncludeApplications)`n`n"
-            }
-        }
-
-        # Show detailed information for policies that don't meet criteria
-        $failingPolicies = $allPolicyDetails | Where-Object { -not $_.TokenProtectionEnabled }
-        if ($failingPolicies.Count -gt 0) {
-            $mdInfo += "## ❌ Policies Not Meeting Token Protection Criteria ($($failingPolicies.Count))`n`n"
-
-            foreach ($policyDetail in $failingPolicies) {
-                $portalLink = "https://entra.microsoft.com/#view/Microsoft_AAD_ConditionalAccess/PolicyBlade/policyId/$($policyDetail.PolicyId)"
-                $mdInfo += "### [$(Get-SafeMarkdown($policyDetail.DisplayName))]($portalLink)`n"
-                $mdInfo += "- **Policy ID:** $($policyDetail.PolicyId)`n"
-                $mdInfo += "- **State:** $($policyDetail.State)`n"
-                $mdInfo += "- **Include Users:** $($policyDetail.IncludeUsers)`n"
-                $mdInfo += "- **Include Applications:** $($policyDetail.IncludeApplications)`n"
-                $mdInfo += "- **Issues:** $($policyDetail.FailureReasons -join '; ')`n`n"
-            }
-        }
-
-        $mdInfo += "## Token Protection Requirements`n`n"
-        $mdInfo += "For a Conditional Access policy to qualify as a token protection policy, it must meet **all** of the following criteria:`n"
-        $mdInfo += "1. **Target specific users** - includeUsers must have values`n"
-        $mdInfo += "2. **Include required applications** - Must include both Office 365 Exchange Online and Microsoft Graph/SharePoint Online applications (or 'All' applications)`n"
-        $mdInfo += "3. **Enable secure sign-in session** - sessionControls.secureSignInSession.isEnabled must be true`n"
     }
 
     $testResultMarkdown += $mdInfo
