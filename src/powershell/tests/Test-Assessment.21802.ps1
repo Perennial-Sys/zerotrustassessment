@@ -20,11 +20,11 @@ function Test-Assessment-21802 {
 
     Write-PSFMessage '🟦 Start' -Tag Test -Level VeryVerbose
 
-    $activity = "Checking Authenticator app shows sign-in context"
-    Write-ZtProgress -Activity $activity -Status "Getting authentication method policy"
+    $activity = 'Checking Authenticator app shows sign-in context'
+    Write-ZtProgress -Activity $activity -Status 'Getting authentication method policy'
 
     # Query Microsoft Authenticator authentication method configuration
-    $authenticatorConfig = Invoke-ZtGraphRequest -RelativeUri 'authenticationMethodsPolicy/authenticationMethodConfigurations/MicrosoftAuthenticator' -ApiVersion 'v1.0'
+    $authenticatorConfig = Invoke-ZtGraphRequest -RelativeUri 'authenticationMethodsPolicy/authenticationMethodConfigurations/MicrosoftAuthenticator' -ApiVersion beta
     function Test-AuthenticatorFeatureSetting {
         [CmdletBinding()]
         param(
@@ -49,13 +49,13 @@ function Test-Assessment-21802 {
         $testResultMarkdown = "Microsoft Authenticator notifications lack sign-in context.`n`n%TestResult%"
     }
 
-    if ($appInfoEnabled) {$appEmoji = "✅"} else {$appEmoji = "❌"}
-    if ($locationInfoEnabled) {$locationEmoji = "✅"} else {$locationEmoji = "❌"}
+    if ($appInfoEnabled) {$appEmoji = '✅'} else {$appEmoji = '❌'}
+    if ($locationInfoEnabled) {$locationEmoji = '✅'} else {$locationEmoji = '❌'}
 
     # Build the detailed sections of the markdown
 
     # Define variables to insert into the format string
-    $reportTitle = "Microsoft Authenticator settings"
+    $reportTitle = 'Microsoft Authenticator settings'
 
     # Create a here-string with format placeholders {0}, {1}, etc.
     $formatTemplate = @"
