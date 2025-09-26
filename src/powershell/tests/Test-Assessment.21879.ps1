@@ -109,14 +109,14 @@ function Test-Assessment-21879{
 
                 # Add detailed information for all external user policies
                 if ($externalUserPolicies.Count -gt 0) {
-                    $testResultMarkdown += '`n`n## All policies applying to external users`n`n'
-                    $testResultMarkdown += '| Access Package | Assignment Policy | Scope Type | Approval Required |`n'
-                    $testResultMarkdown += '| :--- | :--- | :--- | :--- |`n'
+                    $testResultMarkdown += '`n`n## Details`n`n'
+                    $testResultMarkdown += 'For each policy found that applies to external users:`n`n'
+                    $testResultMarkdown += '| Access Package ID | Access Package Name | Assignment Policy ID | Assignment Policy Name | Assignment Policy ScopeType | Assignment Policy isApprovalRequired |`n'
+                    $testResultMarkdown += '| :--- | :--- | :--- | :--- | :--- | :--- |`n'
 
                     foreach ($policy in $externalUserPolicies) {
                         $packageLink = 'https://entra.microsoft.com/#view/Microsoft_AAD_ERM/DashboardBlade/~/elmEntitlementManagement/menuId/AccessPackages'
-                        $approvalStatus = if ($policy.IsApprovalRequired) { '✅ Yes' } else { '❌ No' }
-                        $testResultMarkdown += "| [$(Get-SafeMarkdown($policy.AccessPackageName))]($packageLink) | $(Get-SafeMarkdown($policy.PolicyName)) | $($policy.ScopeType) | $approvalStatus |`n"
+                        $testResultMarkdown += "| $($policy.AccessPackageId) | [$(Get-SafeMarkdown($policy.AccessPackageName))]($packageLink) | $($policy.PolicyId) | $(Get-SafeMarkdown($policy.PolicyName)) | $($policy.ScopeType) | $($policy.IsApprovalRequired) |`n"
                     }
                 }
             }
