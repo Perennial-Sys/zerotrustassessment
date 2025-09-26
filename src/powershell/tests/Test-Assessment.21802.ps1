@@ -63,12 +63,12 @@ function Test-Assessment-21802 {
 ## {0}
 
 
-Feature Settings:
+Feature settings:
 
 $appEmoji **Application name**
 - Status: $((Get-Culture).TextInfo.ToTitleCase($authenticatorConfig.featureSettings.displayAppInformationRequiredState.state.ToLower()))
-- Include Target: $(if ($authenticatorConfig.featureSettings.displayAppInformationRequiredState.includeTarget -is [array]) { ($authenticatorConfig.featureSettings.displayAppInformationRequiredState.includeTarget | ForEach-Object { Get-ZtAuthenticatorFeatureSettingTarget -Target $_ }) -join ', ' } else { Get-ZtAuthenticatorFeatureSettingTarget -Target $authenticatorConfig.featureSettings.displayAppInformationRequiredState.includeTarget })
-- Exclude Target: $(if ($authenticatorConfig.featureSettings.displayAppInformationRequiredState.excludeTarget -is [array]) { ($authenticatorConfig.featureSettings.displayAppInformationRequiredState.excludeTarget | ForEach-Object { Get-ZtAuthenticatorFeatureSettingTarget -Target $_ }) -join ', ' } else { Get-ZtAuthenticatorFeatureSettingTarget -Target $authenticatorConfig.featureSettings.displayAppInformationRequiredState.excludeTarget })
+- Include target: $(if ($authenticatorConfig.featureSettings.displayAppInformationRequiredState.includeTarget -is [array]) { ($authenticatorConfig.featureSettings.displayAppInformationRequiredState.includeTarget | ForEach-Object { Get-ZtAuthenticatorFeatureSettingTarget -Target $_ }) -join ', ' } else { Get-ZtAuthenticatorFeatureSettingTarget -Target $authenticatorConfig.featureSettings.displayAppInformationRequiredState.includeTarget })
+- Exclude target: $(if ($authenticatorConfig.featureSettings.displayAppInformationRequiredState.excludeTarget -is [array]) { ($authenticatorConfig.featureSettings.displayAppInformationRequiredState.excludeTarget | ForEach-Object { Get-ZtAuthenticatorFeatureSettingTarget -Target $_ }) -join ', ' } else { Get-ZtAuthenticatorFeatureSettingTarget -Target $authenticatorConfig.featureSettings.displayAppInformationRequiredState.excludeTarget })
 
 $locationEmoji **Geographic location**
 - Status: $((Get-Culture).TextInfo.ToTitleCase($authenticatorConfig.featureSettings.displayLocationInformationRequiredState.state.ToLower()))
