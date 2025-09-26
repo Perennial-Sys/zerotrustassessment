@@ -36,26 +36,6 @@ function Test-Assessment-21802 {
         $FeatureSetting.includeTarget.id -eq 'all_users' -and
         $FeatureSetting.excludeTarget.id -eq '00000000-0000-0000-0000-000000000000'
     }
-    function Get-AuthenticatorFeatureSettingTarget {
-        [CmdletBinding()]
-        param(
-            [Parameter(Mandatory)]
-            [object]$Target
-        )
-
-        if ($Target.id -eq 'all_users') {
-            return "All users"
-        }
-        elseif ($Target.id -eq '00000000-0000-0000-0000-000000000000') {
-            return "No exclusions"
-        }
-        else {
-            if ($Target.targetType -eq 'group') {
-                $group = Invoke-ZtGraphRequest -RelativeUri "groups/$($Target.id)" -ApiVersion 'v1.0'
-                "Group: $($group.displayName)"
-            }
-        }
-    }
 
     # Check if both app information and location information are properly configured
     $appInfoEnabled = Test-AuthenticatorFeatureSetting -FeatureSetting $authenticatorConfig.featureSettings.displayAppInformationRequiredState
@@ -85,15 +65,15 @@ function Test-Assessment-21802 {
 
 Feature Settings:
 
-$appEmoji **Application Name**
+$appEmoji **Application name**
 - Status: $((Get-Culture).TextInfo.ToTitleCase($authenticatorConfig.featureSettings.displayAppInformationRequiredState.state.ToLower()))
-- Include Target: $(Get-AuthenticatorFeatureSettingTarget -Target $authenticatorConfig.featureSettings.displayAppInformationRequiredState.includeTarget)
-- Exclude Target: $(Get-AuthenticatorFeatureSettingTarget -Target $authenticatorConfig.featureSettings.displayAppInformationRequiredState.excludeTarget)
+- Include Target: $(if ($authenticatorConfig.featureSettings.displayAppInformationRequiredState.includeTarget -is [array]) { ($authenticatorConfig.featureSettings.displayAppInformationRequiredState.includeTarget | ForEach-Object { Get-ZtAuthenticatorFeatureSettingTarget -Target $_ }) -join ', ' } else { Get-ZtAuthenticatorFeatureSettingTarget -Target $authenticatorConfig.featureSettings.displayAppInformationRequiredState.includeTarget })
+- Exclude Target: $(if ($authenticatorConfig.featureSettings.displayAppInformationRequiredState.excludeTarget -is [array]) { ($authenticatorConfig.featureSettings.displayAppInformationRequiredState.excludeTarget | ForEach-Object { Get-ZtAuthenticatorFeatureSettingTarget -Target $_ }) -join ', ' } else { Get-ZtAuthenticatorFeatureSettingTarget -Target $authenticatorConfig.featureSettings.displayAppInformationRequiredState.excludeTarget })
 
-$locationEmoji **Geographic Location**
+$locationEmoji **Geographic location**
 - Status: $((Get-Culture).TextInfo.ToTitleCase($authenticatorConfig.featureSettings.displayLocationInformationRequiredState.state.ToLower()))
-- Include Target: $(Get-AuthenticatorFeatureSettingTarget -Target $authenticatorConfig.featureSettings.displayLocationInformationRequiredState.includeTarget)
-- Exclude Target: $(Get-AuthenticatorFeatureSettingTarget -Target $authenticatorConfig.featureSettings.displayLocationInformationRequiredState.excludeTarget)
+- Include target: $(if ($authenticatorConfig.featureSettings.displayLocationInformationRequiredState.includeTarget -is [array]) { ($authenticatorConfig.featureSettings.displayLocationInformationRequiredState.includeTarget | ForEach-Object { Get-ZtAuthenticatorFeatureSettingTarget -Target $_ }) -join ', ' } else { Get-ZtAuthenticatorFeatureSettingTarget -Target $authenticatorConfig.featureSettings.displayLocationInformationRequiredState.includeTarget })
+- Exclude target: $(if ($authenticatorConfig.featureSettings.displayLocationInformationRequiredState.excludeTarget -is [array]) { ($authenticatorConfig.featureSettings.displayLocationInformationRequiredState.excludeTarget | ForEach-Object { Get-ZtAuthenticatorFeatureSettingTarget -Target $_ }) -join ', ' } else { Get-ZtAuthenticatorFeatureSettingTarget -Target $authenticatorConfig.featureSettings.displayLocationInformationRequiredState.excludeTarget })
 
 "@
 
@@ -105,12 +85,6 @@ $locationEmoji **Geographic Location**
 
     $params = @{
         TestId             = '21802'
-        Title              = 'Authenticator app shows sign-in context'
-        UserImpact         = 'Low'
-        Risk               = 'Medium'
-        ImplementationCost = 'Low'
-        AppliesTo          = 'Identity'
-        Tag                = 'Identity'
         Status             = $passed
         Result             = $testResultMarkdown
     }
