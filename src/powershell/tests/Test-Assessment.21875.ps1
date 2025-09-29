@@ -12,7 +12,7 @@ function Test-Assessment-21875{
     	SfiPillar = 'Protect identities and secrets',
     	TenantType = ('Workforce','External'),
     	TestId = 21875,
-    	Title = 'Tenant has all External organizations allowed to collaborate as Connected Organization',
+    	Title = 'Tenant has all external organizations allowed to collaborate as connected organization',
     	UserImpact = 'Medium'
     )]
     [CmdletBinding()]
