@@ -1,7 +1,7 @@
 ﻿
 <#
 .SYNOPSIS
-
+    Test macOS Firewall Policy is created and assigned
 #>
 
 
@@ -41,16 +41,17 @@ function Test-PolicyAssignment {
 
     return $assignedPolicies.Count -gt 0
 }
+
     #endregion Helper Functions
 
     #region Data Collection
     Write-PSFMessage '🟦 Start' -Tag Test -Level VeryVerbose
 
-    $activity = "Checking macOS Firewall Policy is Created and Assigned"
-    Write-ZtProgress -Activity $activity -Status "Getting policy"
+    $activity = 'Checking macOS Firewall Policy is Created and Assigned'
+    Write-ZtProgress -Activity $activity -Status 'Getting policy'
 
     # Retrieve all macOS policies
-    $macOSPolicies_Uri = "deviceManagement/configurationPolicies?&`$filter=(platforms has 'macOS') and (technologies has 'mdm' and technologies has 'appleRemoteManagement')&`$select=id,name,description,platforms,technologies&`$expand=settings,assignments"
+    $macOSPolicies_Uri = "deviceManagement/configurationPolicies?&`$filter=(platforms has 'macOS') and (technologies has 'mdm' and technologies has 'appleRemoteManagement') and (templateReference/TemplateFamily eq 'endpointSecurityFirewall')&`$select=id,name,description,platforms,technologies&`$expand=settings,assignments"
     $macOSPolicies = Invoke-ZtGraphRequest -RelativeUri $macOSPolicies_Uri -ApiVersion beta
 
     # Filter policies to include only those related to firewall settings
@@ -71,7 +72,11 @@ function Test-PolicyAssignment {
         foreach ($settingId in $policySettingIds) {
             if ($validSettingIds -contains $settingId) {
                 $hasValidSetting = $true
+                [PSFramework.Object.ObjectHost]::AddNoteProperty($macOSPolicy,'FirewallSettings', $true)
                 break
+            }
+            else{
+                [PSFramework.Object.ObjectHost]::AddNoteProperty($macOSPolicy,'FirewallSettings', $false)
             }
         }
 
@@ -79,7 +84,6 @@ function Test-PolicyAssignment {
             $macOSFirewallPolicies += $macOSPolicy
         }
     }
-
     #endregion Data Collection
 
     #region Assessment Logic
@@ -104,39 +108,44 @@ function Test-PolicyAssignment {
     $reportTitle = "macOS Firewall Policies"
     $tableRows = ""
 
-    if ($macOSFirewallPolicies.Count -gt 0) {
+    if ($macOSPolicies.Count -gt 0) {
         # Create a here-string with format placeholders {0}, {1}, etc.
         $formatTemplate = @'
 
 ## {0}
 
-| Policy Name | Status | Assignment Target |
-| :---------- | :----- | :---------------- |
+| Policy Name | Status | Assignment Target | Firewall Status |
+| :---------- | :----- | :---------------- | :--------------- |
 {1}
 
 '@
 
-        foreach ($policy in $macOSFirewallPolicies) {
+        foreach ($policy in $macOSPolicies) {
 
                 $policyName = $policy.Name
                 $portalLink = 'https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/DevicesMenu/~/configuration'
 
             if ($policy.assignments -and $policy.assignments.Count -gt 0) {
-                $status = "✅ Assigned"
+                $status = '✅ Assigned'
             }
             else {
-                $status = "❌ Not assigned"
+                $status = '❌ Not assigned'
             }
-
+            if ($policy.FirewallSettings) {
+                $firewallSettings = '✅ Enabled'
+            }
+            else {
+                $firewallSettings = '❌ Disabled'
+            }
             # Get assignment details for this specific policy
-            $assignmentTarget = "None"
+            $assignmentTarget = 'None'
 
             if ($policy.assignments -and $policy.assignments.Count -gt 0) {
                 $assignmentTarget = Get-PolicyAssignmentTarget -Assignments $policy.assignments
             }
 
             $tableRows += @"
-| [$(Get-SafeMarkdown($policyName))]($portalLink) | $status | $assignmentTarget |`n
+| [$(Get-SafeMarkdown($policyName))]($portalLink) | $status | $assignmentTarget | $firewallSettings `n
 "@
         }
 
@@ -144,7 +153,7 @@ function Test-PolicyAssignment {
         $mdInfo = $formatTemplate -f $reportTitle, $tableRows
     }
     else {
-        $mdInfo = "No macOS firewall policies found in this tenant.`n"
+        $mdInfo = 'No macOS firewall policies found in this tenant.`n'
     }
 
     # Replace the placeholder with the detailed information
