@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Creates an anonymized sample report from an existing Zero Trust Assessment JSON report.
+    Creates an anonymized demo report from an existing Zero Trust Assessment JSON report.
 
 .DESCRIPTION
     This script takes an existing Zero Trust Assessment JSON report and:
@@ -17,10 +17,10 @@
     Example: /Users/merill/GitHub/zerotrustassessment/SampleReport.html
 
 .EXAMPLE
-    .\New-SampleReport.ps1 -InputJsonPath "C:\Reports\ZeroTrustAssessmentReport.json" -OutputHtmlPath "C:\Reports\SampleReport.html"
+    .\New-DemoReport.ps1 -InputJsonPath "C:\Reports\ZeroTrustAssessmentReport.json" -OutputHtmlPath "C:\Reports\DemoReport.html"
 
 .EXAMPLE
-    .\New-SampleReport.ps1 -InputJsonPath "/Users/merill/GitHub/zerotrustassessment/ZeroTrustReport/pora/2025-10-27-Full/zt-export/ZeroTrustAssessmentReport.json" -OutputHtmlPath "/Users/merill/GitHub/zerotrustassessment/SampleReport.html"
+    .\New-DemoReport.ps1 -InputJsonPath "/Users/merill/GitHub/zerotrustassessment/ZeroTrustReport/pora/2025-10-27-Full/zt-export/ZeroTrustAssessmentReport.json" -OutputHtmlPath "/Users/merill/GitHub/zerotrustassessment/SampleReport.html"
 #>
 
 [CmdletBinding()]
@@ -55,7 +55,7 @@ function Get-HtmlReport {
     # Convert to JSON properly with sufficient depth
     $json = $AssessmentResults | ConvertTo-Json -Depth 100 -Compress
 
-    $htmlFilePath = Join-Path -Path $script:ModuleRoot -ChildPath 'assets/ReportTemplate.html'
+    $htmlFilePath = Join-Path -Path $script:ModuleRoot -ChildPath '../../../src/powershell/assets/ReportTemplate.html'
     $templateHtml = Get-Content -Path $htmlFilePath -Raw
 
     # Insert the test results json into the template
@@ -79,7 +79,7 @@ $jsonContent = Get-Content -Path $InputJsonPath -Raw | ConvertFrom-Json -Depth 1
 Write-Host "Anonymizing report data..." -ForegroundColor Cyan
 
 # Anonymize tenant information
-$jsonContent.TenantId = "00000000-0000-0000-0000-000000000000"
+$jsonContent.TenantId = "aaaabbbb-0000-cccc-1111-dddd2222eeee"
 $jsonContent.TenantName = "Contoso"
 $jsonContent.Domain = "contoso.com"
 $jsonContent.Account = "admin@contoso.com"
@@ -97,8 +97,6 @@ $jsonContent.TestResultSummary.IdentityPassed = 45
 $jsonContent.TestResultSummary.IdentityTotal = 90
 $jsonContent.TestResultSummary.DevicesPassed = 28
 $jsonContent.TestResultSummary.DevicesTotal = 36
-$jsonContent.TestResultSummary.DataPassed = 15
-$jsonContent.TestResultSummary.DataTotal = 25
 
 # Ensure TenantInfo exists
 if ($null -eq $jsonContent.TenantInfo) {
@@ -282,20 +280,17 @@ $jsonContent.TenantInfo.OverviewCaDevicesAllUsers = @{
 
 Write-Host "Anonymizing user information in test results..." -ForegroundColor Cyan
 
-# Anonymize user information within test results
-$sampleUserNames = @(
-    "Alex Johnson", "Jordan Smith", "Taylor Brown", "Casey Davis",
-    "Morgan Wilson", "Riley Martinez", "Cameron Anderson", "Avery Thomas",
-    "Quinn Garcia", "Jamie Rodriguez", "Dakota Lee", "Skylar White",
-    "Reese Harris", "Peyton Clark", "Charlie Lewis", "Finley Robinson"
-)
-
-$sampleEmails = @(
-    "alex@contoso.com", "jordan@contoso.com", "taylor@contoso.com", "casey@contoso.com",
-    "morgan@contoso.com", "riley@contoso.com", "cameron@contoso.com", "avery@contoso.com",
-    "quinn@contoso.com", "jamie@contoso.com", "dakota@contoso.com", "skylar@contoso.com",
-    "reese@contoso.com", "peyton@contoso.com", "charlie@contoso.com", "finley@contoso.com"
-)
+# Load the user mapping from CSV
+$demoUsersCsvPath = Join-Path $PSScriptRoot "demo-users.csv"
+if (-not (Test-Path $demoUsersCsvPath)) {
+    Write-Warning "demo-users.csv not found at $demoUsersCsvPath. Skipping user anonymization."
+    $userMappings = @()
+}
+else {
+    Write-Host "Loading user mappings from: $demoUsersCsvPath" -ForegroundColor Cyan
+    $userMappings = Import-Csv -Path $demoUsersCsvPath
+    Write-Host "Loaded $($userMappings.Count) user mappings" -ForegroundColor Cyan
+}
 
 # Function to anonymize a GUID
 function New-AnonymousGuid {
@@ -307,37 +302,74 @@ function New-AnonymousGuid {
     return $guid.ToString()
 }
 
-# Process each test to anonymize user data
-$userCounter = 0
-$userMapping = @{}
+# Process each test to anonymize user data in TestDescription and TestResult
+if ($userMappings.Count -gt 0) {
+    $replacementCount = 0
 
-# foreach ($test in $jsonContent.Tests) {
-#     if ($null -ne $test.TestResult -and $test.TestResult -match '@') {
-#         # Replace email addresses with contoso.com emails
-#         $test.TestResult = $test.TestResult -replace '[\w\.-]+@[\w\.-]+\.\w+', {
-#             $email = $_.Value
-#             if (-not $userMapping.ContainsKey($email)) {
-#                 $userMapping[$email] = $sampleEmails[$userCounter % $sampleEmails.Count]
-#                 $userCounter++
-#             }
-#             $userMapping[$email]
-#         }
+    foreach ($test in $jsonContent.Tests) {
+        $wasModified = $false
 
-#         # Replace domain references
-#         $test.TestResult = $test.TestResult -replace 'elapora\.com', 'contoso.com'
-#         $test.TestResult = $test.TestResult -replace 'Pora Inc\.', 'Contoso'
+        # Process TestDescription field
+        if ($null -ne $test.TestDescription -and $test.TestDescription.Length -gt 0) {
+            $originalDescription = $test.TestDescription
 
-#         # Replace user names (common patterns)
-#         $test.TestResult = $test.TestResult -replace '\[([\w\s\.]+)\]\(https://entra\.microsoft\.com', {
-#             $matches[0] -replace $matches[1], ($sampleUserNames[$userCounter % $sampleUserNames.Count])
-#         }
+            # Replace each user's display name and UPN from the mapping
+            foreach ($mapping in $userMappings) {
+                # Replace display names (case-insensitive)
+                if (-not [string]::IsNullOrWhiteSpace($mapping.OriginalDisplayName)) {
+                    $test.TestDescription = $test.TestDescription -replace [regex]::Escape($mapping.OriginalDisplayName), $mapping.DemoDisplayName
+                }
 
-#         # Replace GUIDs in URLs and text
-#         $test.TestResult = $test.TestResult -replace '\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', {
-#             New-AnonymousGuid -originalGuid $_.Value
-#         }
-#     }
-# }
+                # Replace UPNs (case-insensitive)
+                if (-not [string]::IsNullOrWhiteSpace($mapping.OriginalUserPrincipalName)) {
+                    $test.TestDescription = $test.TestDescription -replace [regex]::Escape($mapping.OriginalUserPrincipalName), $mapping.DemoUserPrincipalName
+                }
+            }
+
+            if ($originalDescription -ne $test.TestDescription) {
+                $wasModified = $true
+            }
+        }
+
+        # Process TestResult field
+        if ($null -ne $test.TestResult -and $test.TestResult.Length -gt 0) {
+            $originalResult = $test.TestResult
+
+            # Replace each user's display name and UPN from the mapping
+            foreach ($mapping in $userMappings) {
+
+                # Replace UPNs (case-insensitive)
+                if (-not [string]::IsNullOrWhiteSpace($mapping.OriginalUserPrincipalName)) {
+                    $test.TestResult = $test.TestResult -replace [regex]::Escape($mapping.OriginalUserPrincipalName), $mapping.DemoUserPrincipalName
+                }
+
+                # Replace display names (case-insensitive)
+                if (-not [string]::IsNullOrWhiteSpace($mapping.OriginalDisplayName)) {
+                    $test.TestResult = $test.TestResult -replace [regex]::Escape($mapping.OriginalDisplayName), $mapping.DemoDisplayName
+                }
+
+                # Catch all for domain
+                $test.TestResult = $test.TestResult -replace [regex]::Escape("@elapora.com"), "@contoso.com"
+                $test.TestResult = $test.TestResult -replace [regex]::Escape("erill"), "anson"
+                $test.TestResult = $test.TestResult -replace [regex]::Escape("pora.onmicrosoft.com"), "contoso.onmicrosoft.com"
+            }
+
+            if ($originalResult -ne $test.TestResult) {
+                $wasModified = $true
+            }
+        }
+
+        # Track if any replacements were made in this test
+        if ($wasModified) {
+            $replacementCount++
+        }
+    }
+
+    Write-Host "Anonymized user information in $replacementCount tests" -ForegroundColor Cyan
+}
+else {
+    Write-Host "No user mappings available, skipping user anonymization" -ForegroundColor Yellow
+}
 
 Write-Host "Generating HTML report..." -ForegroundColor Cyan
 

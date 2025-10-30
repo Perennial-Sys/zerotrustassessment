@@ -40,7 +40,7 @@ function Test-Assessment-21825{
     Write-ZtProgress -Activity $activity -Status 'Getting privileged role definitions'
 
     # Query 1 (Q1): Get privileged role definitions
-    $privilegedRoles = Invoke-ZtGraphRequest -RelativeUri 'roleManagement/directory/roleDefinitions' -Filter 'isPrivileged eq true' -ApiVersion beta
+    $privilegedRoles = Get-ZtRole -IncludePrivilegedRoles
 
     if ($null -eq $privilegedRoles -or $privilegedRoles.Count -eq 0) {
         $testResultMarkdown = "## Privileged Roles Not Found`n`n"
@@ -140,8 +140,8 @@ function Test-Assessment-21825{
             }
             $testResultMarkdown += "`n"
         } else {
-            $testResultMarkdown += "**Status:** ❌ No enabled CA policies assigned`n`n"
-            $testResultMarkdown += "*No enabled Conditional Access policies target this privileged role.*`n`n"
+            $testResultMarkdown += "**Status:** ❌ No CA policies assigned`n`n"
+            $testResultMarkdown += "*No Conditional Access policies target this privileged role.*`n`n"
             $allRolesCovered = $false
         }
     }
