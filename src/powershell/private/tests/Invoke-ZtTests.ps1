@@ -33,7 +33,7 @@
 		[string[]]
 		$Tests,
 
-		[ValidateSet('All', 'Identity', 'Devices')]
+		[ValidateSet('All', 'Identity', 'Devices', 'Network', 'Data')]
 		[string]
 		$Pillar = 'All',
 
@@ -54,9 +54,30 @@
 
 	$testsToRun = Get-ZtTest -Tests $Tests -Pillar $Pillar -TenantType $tenantTypeMapping[$TenantType]
 
+	# Filter based on preview feature flag
+	if (-not $script:__ZtSession.PreviewEnabled) {
+		# Non-preview mode: Only include stable/released pillars
+		$stablePillars = @('Identity', 'Devices')
+		$testsToRun = $testsToRun | Where-Object { $_.Pillar -in $stablePillars }
+	}
+
+	# Separate Sync Tests (Compliance/ExchangeOnline/SharePointOnline) from Parallel Tests
+	$syncTestIds = @($testsToRun | Where-Object { $_.Pillar -eq 'Data' } | Select-Object -ExpandProperty TestId)
+	$syncTests = $testsToRun | Where-Object { $_.TestId -in $syncTestIds }
+	$parallelTests = $testsToRun | Where-Object { $_.TestId -notin $syncTestIds }
+
+	$workflow = $null
 	try {
-		$workflow = Start-ZtTestExecution -Tests $testsToRun -DbPath $Database.Database -ThrottleLimit $ThrottleLimit
-		Wait-ZtTest -Workflow $workflow
+		# Run Sync Tests in the main thread
+		foreach ($test in $syncTests) {
+			Invoke-ZtTest -Test $test -Database $Database
+		}
+
+		# Run Parallel Tests
+		if ($parallelTests) {
+			$workflow = Start-ZtTestExecution -Tests $parallelTests -DbPath $Database.Database -ThrottleLimit $ThrottleLimit
+			Wait-ZtTest -Workflow $workflow
+		}
 	}
 	finally {
 		if ($workflow) {
@@ -64,7 +85,7 @@
 			Disable-PSFConsoleInterrupt
 			$workflow | Stop-PSFRunspaceWorkflow
 			$workflow | Remove-PSFRunspaceWorkflow
+			Enable-PSFConsoleInterrupt
 		}
-		Enable-PSFConsoleInterrupt
 	}
 }
