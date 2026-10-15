@@ -42,7 +42,12 @@ if ( -not (Test-Path $ManifestPath )) {
 
     $previewLabel = if ($preview) { '-preview' } else { '' }
 
-    Update-ModuleManifest -Path $ManifestPath -ModuleVersion $NewVersion -FunctionsToExport $FunctionNames -Prerelease $previewLabel
+    Write-Debug -Message ('Updating FunctionsToExport...')
+    Update-Metadata -Path $ManifestPath -PropertyName FunctionsToExport -Value $FunctionNames
+    Write-Debug -Message ('Updating ModuleVersion...')
+    Update-Metadata -Path $ManifestPath -PropertyName ModuleVersion -Value $NewVersion
+    Write-Debug -Message ('Updating Prerelease...')
+    Update-Metadata -Path $ManifestPath -PropertyName Prerelease -Value $previewLabel.TrimStart('-')
 }
 
 $NewVersion += $previewLabel

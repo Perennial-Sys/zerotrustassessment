@@ -5,16 +5,16 @@
 
 function Test-Assessment-21819 {
     [ZtTest(
-        Category = 'Privileged access',
-        ImplementationCost = 'Medium',
-        MinimumLicense = ('P2'),
-        Pillar = 'Identity',
-        RiskLevel = 'Low',
-        SfiPillar = 'Protect identities and secrets',
-        TenantType = ('Workforce'),
-        TestId = 21819,
-        Title = 'Activation alert for Global Administrator role assignment',
-        UserImpact = 'Low'
+    	Category = 'Privileged access',
+    	ImplementationCost = 'Low',
+    	MinimumLicense = ('P2'),
+    	Pillar = 'Identity',
+    	RiskLevel = 'Medium',
+    	SfiPillar = 'Protect identities and secrets',
+    	TenantType = ('Workforce'),
+    	TestId = 21819,
+    	Title = 'Activation alert for Global Administrator role assignments',
+    	UserImpact = 'Low'
     )]
     [CmdletBinding()]
     param(
@@ -68,7 +68,7 @@ function Test-Assessment-21819 {
         Write-PSFMessage "Found policy ID: $policyId" -Level Verbose
 
         # Query 3: Get activation notification rules
-        $notificationRuleUri = "policies/roleManagementPolicies/$policyId/rules/Notification_Requestor_EndUser_Assignment"
+        $notificationRuleUri = "policies/roleManagementPolicies/$policyId/rules/Notification_Admin_EndUser_Assignment"
         $notificationRule = Invoke-ZtGraphRequest -RelativeUri $notificationRuleUri -ApiVersion beta -DisableCache
 
         $isDefaultRecipientsEnabled = $notificationRule.isDefaultRecipientsEnabled

@@ -35,7 +35,7 @@ if ($ModuleManifest.PrivateData.PSData['Prerelease'] -eq 'source') { $paramUpdat
 ## Override from Parameters
 if ($Guid) { $paramUpdateModuleManifest['Guid'] = $Guid }
 if ($ModuleVersion) { $paramUpdateModuleManifest['ModuleVersion'] = $ModuleVersion }
-if ($Prerelease) { $paramUpdateModuleManifest['Prerelease'] = $Prerelease }
+if (-not [string]::IsNullOrEmpty($Prerelease)) { $paramUpdateModuleManifest['Prerelease'] = $Prerelease.TrimStart('-') }
 
 ## Get Module Output FileList
 $ModuleFileListFileInfo = Get-ChildItem $ModuleManifestFileInfo.DirectoryName -Recurse -File
@@ -54,16 +54,24 @@ if (!$SkipRequiredAssembliesDetection -and $ModuleRequiredAssembliesFileInfo) {
 }
 
 ## Clear Existing RequiredAssemblies, NestedModules, and FileList
-if ($paramUpdateModuleManifest.ContainsKey('RequiredAssemblies')) {
-    if (!$paramUpdateModuleManifest['RequiredAssemblies']) { $paramUpdateModuleManifest.Remove('RequiredAssemblies') }
-    (Get-Content $ModuleManifestFileInfo.FullName -Raw) -replace "(?s)(#\s*)?RequiredAssemblies\s*=\s*@\([^)]*\)", "# RequiredAssemblies = @()" | Set-Content $ModuleManifestFileInfo.FullName
-}
-if ($paramUpdateModuleManifest.ContainsKey('NestedModules') -and !$paramUpdateModuleManifest['NestedModules']) {
-    $paramUpdateModuleManifest.Remove('NestedModules')
-    (Get-Content $ModuleManifestFileInfo.FullName -Raw) -replace "(?s)(#\s*)?NestedModules\s*=\s*@\([^)]*\)", "# NestedModules = @()" | Set-Content $ModuleManifestFileInfo.FullName
-}
-if ($paramUpdateModuleManifest.ContainsKey('FileList')) {
-    (Get-Content $ModuleManifestFileInfo.FullName -Raw) -replace "(?s)(#\s*)?FileList\s*=\s*@\([^)]*\)", "# FileList = @()" | Set-Content $ModuleManifestFileInfo.FullName
+# if ($paramUpdateModuleManifest.ContainsKey('RequiredAssemblies')) {
+#     if (!$paramUpdateModuleManifest['RequiredAssemblies']) { $paramUpdateModuleManifest.Remove('RequiredAssemblies') }
+#     (Get-Content $ModuleManifestFileInfo.FullName -Raw) -replace "(?s)(#\s*)?RequiredAssemblies\s*=\s*@\([^)]*\)", "# RequiredAssemblies = @()" | Set-Content $ModuleManifestFileInfo.FullName
+# }
+# if ($paramUpdateModuleManifest.ContainsKey('NestedModules') -and !$paramUpdateModuleManifest['NestedModules']) {
+#     $paramUpdateModuleManifest.Remove('NestedModules')
+#     (Get-Content $ModuleManifestFileInfo.FullName -Raw) -replace "(?s)(#\s*)?NestedModules\s*=\s*@\([^)]*\)", "# NestedModules = @()" | Set-Content $ModuleManifestFileInfo.FullName
+# }
+# if ($paramUpdateModuleManifest.ContainsKey('FileList')) {
+#     (Get-Content $ModuleManifestFileInfo.FullName -Raw) -replace "(?s)(#\s*)?FileList\s*=\s*@\([^)]*\)", "# FileList = @()" | Set-Content $ModuleManifestFileInfo.FullName
+# }
+
+## Ensure PSGallery is registered for PowerShellGet.
+## PowerShell 7.6+ bundles Microsoft.PowerShell.PSResourceGet as the default package module
+## and no longer seeds the PSGallery source for the legacy PowerShellGet/PackageManagement stack
+## that Install-Module relies on, so register it explicitly when missing.
+if (-not (Get-PSRepository -Name 'PSGallery' -ErrorAction SilentlyContinue)) {
+    Register-PSRepository -Default -ErrorAction Stop
 }
 
 ## Install Module Dependencies
@@ -75,5 +83,16 @@ foreach ($Module in $ModuleManifest['RequiredModules']) {
     }
 }
 
+## Save original manifest content before Update-ModuleManifest corrupts
+## custom PrivateData keys containing hashtable arrays (it serializes them as type name strings).
+
 ## Update Module Manifest in Module Output Directory
-Update-ModuleManifest -Path $ModuleManifestFileInfo.FullName -ErrorAction Stop @paramUpdateModuleManifest
+# Update-ModuleManifest -Path $ModuleManifestFileInfo.FullName -ErrorAction Stop @paramUpdateModuleManifest
+foreach ($key in $paramUpdateModuleManifest.Keys) {
+    if ($paramUpdateModuleManifest[$key]) { # Only update manifest properties that have values
+        Update-Metadata -Path $ModuleManifestFileInfo.FullName -PropertyName $key -Value $paramUpdateModuleManifest[$key]
+    }
+    else {
+        Write-Debug -Message ('Metadata is empty for {0}, skipping update for this property.' -f $key)
+    }
+}

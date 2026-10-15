@@ -20,6 +20,14 @@
 		How many Runspaces to run in parallel to optimize tests processing.
 		Defaults to: 5
 
+	.PARAMETER TestTimeout
+		Maximum time a single test is allowed to run.
+		Either from start to finish or how long it may remain "Idle" (That is, not report activity. Logging Messages shows activity).
+		Which mode is determined by the configuration setting 'ZeroTrustAssessment.Tests.TimeoutType'
+		Modes available at this time:
+		- Idle: Timeout is measured from last activity
+		- Start: Timeout is measured from start of the Test
+
 	.EXAMPLE
 		PS C:\> Start-ZtTestExecution -Tests $testsToRun -DbPath $Database.Database -ThrottleLimit $ThrottleLimit
 
@@ -35,15 +43,25 @@
 		$DbPath,
 
 		[int]
-		$ThrottleLimit = 5
+		$ThrottleLimit = 5,
+
+		[string]
+		$LogsPath,
+
+		[timespan]
+		$TestTimeout = [timespan]::Zero
 	)
 	begin {
 		#region Calculate Resources to Import
 		$variables = @{
 			databasePath = $DbPath
+			moduleRoot   = $script:ModuleRoot
+			logsPath     = $LogsPath
 		}
 		# Explicitly including all modules required, as we later import the psm1, not the psd1 file
-		$modules = (Import-PSFPowerShellDataFile "$($script:ModuleRoot)\$($PSCmdlet.MyInvocation.MyCommand.Module.Name).psd1").RequiredModules | ForEach-Object {
+		#TODO: This is brittle
+		$modulePsd1Path = Join-Path $script:ModuleRoot "$($PSCmdlet.MyInvocation.MyCommand.Module.Name).psd1"
+		$modules = (Import-PSFPowerShellDataFile $modulePsd1Path).RequiredModules | ForEach-Object {
 			if ($_ -is [string]) {
 				$name = $_
 			}
@@ -62,27 +80,97 @@
 			}
 		}
 		# Loading the PSM1 to make internal commands directly accessible
-		$modules = @($modules) + "$($script:ModuleRoot)\$($PSCmdlet.MyInvocation.MyCommand.Module.Name).psm1"
+		$modulePsm1Path = Join-Path $script:ModuleRoot "$($PSCmdlet.MyInvocation.MyCommand.Module.Name).psm1"
+		$modules = @($modules) + $modulePsm1Path
+
+		# Get the modules loaded from the connected service
+		# Add those modules in the runspace initialization to make the service cmdlets available
+		# this should allow all tests to be run in parallel.
+
 		#endregion Calculate Resources to Import
 
-		$param = @{
-			InQueue       = 'Input'
-			OutQueue      = 'Results'
-			Count         = $ThrottleLimit
-			Variables     = $variables
-			CloseOutQueue = $true
-			Modules       = $modules
-		}
-	}
-	process {
-		$workflow = New-PSFRunspaceWorkflow -Name 'ZeroTrustAssessment.Tests' -Force
-		$null = $workflow | Add-PSFRunspaceWorker -Name Tester @param -Begin {
+		#region Code
+		$begin = {
+			$script:ModuleRoot = $moduleRoot
 			$global:database = Connect-Database -Path $databasePath -PassThru
-		} -ScriptBlock {
-			Invoke-ZtTest -Test $_ -Database $global:database
-		} -End {
+			$global:msgSoFar = @{}
+		}
+		$process = {
+			if (-not $global:msgSoFar.ContainsKey($_.TestID)) {
+				$global:msgSoFar.Clear()
+				$global:msgSoFar[$_.TestID] = Get-PSFMessage -Runspace ([runspace]::DefaultRunspace.InstanceId)
+			}
+			Invoke-ZtTestParallel -Test $_ -Database $global:database -LogsPath $logsPath -PreviousMessages $global:msgSoFar[$_.TestID]
+		}
+		$end = {
 			Disconnect-Database -Database $global:database
 		}
+		$condition = {
+			$result = Get-ZtTestResult -Test $this
+
+			# Check whether we should retry
+			$retryCount = $__PSF_Worker.RetryCount
+			if ($__PSF_Agent.CurrentItem.RetryCount) { $retryCount = $__PSF_Agent.CurrentItem.RetryCount }
+			$retryTimeout = Get-PSFConfigValue -FullName 'ZeroTrustAssessment.Tests.RetryTimeout'
+			if (
+				$result.Attempts -lt $retryCount -and
+				(
+					$retryTimeout -or
+					$_ -notmatch 'Workitem timed out'
+				)
+			) { return $true }
+
+			$result.TimedOut = $_.Exception -is [System.TimeoutException] -and $_ -match 'Workitem timed out'
+
+			# Let's fail this
+			$result.End = Get-Date
+			# In Case this failed before it ever started (e.g.: Test Command not found), ensure we have at least the correct data types
+			if (-not $result.Start) {
+				$result.Start = $result.End
+			}
+			$result.Duration = $result.End - $result.Start
+
+			if ($result.TimedOut) {
+				<#
+				The system supports per-Item timeouts.
+				Taking that into account for a future feature update.
+				The per-Item timeout is a TimeSpanParameter, not a TimeSpan, and thus can be $null when not specified.
+				#>
+				$timeout = $__PSF_Worker.Timeout
+				if ($__PSF_Agent.CurrentItem.Timeout) { $timeout = $__PSF_Agent.CurrentItem.Timeout }
+				Set-ZtTimedOutResult -Result $result -Test $this -Timeout $timeout
+			}
+			$null = Write-ZtTestError -Test $this -Result $result -ErrorRecord $_
+			Write-PSFMessage -Message "Processing test '{0}' - Concluded" -StringValues $this.TestID -Target $this -Tag end
+			$null = Write-ZtTestFinish -Result $result -PreviousMessages $global:msgSoFar[$this.TestID] -Test $this -LogsPath $logsPath
+		}
+		#endregion Code
+
+		$param = @{
+			InQueue        = 'Input'
+			OutQueue       = 'Results'
+			Count          = $ThrottleLimit
+			Variables      = $variables
+			CloseOutQueue  = $true
+			Modules        = $modules
+			KillToStop     = $true
+			RetryCount     = 1 + (Get-PSFConfigValue -FullName 'ZeroTrustAssessment.Tests.RetryCount')
+			RetryCondition = $condition
+		}
+		if ($TestTimeout.TotalSeconds -gt 0) {
+			$param.Timeout = $TestTimeout
+			$param.TimeoutType = Get-PSFConfigValue -FullName 'ZeroTrustAssessment.Tests.TimeoutType'
+			$typeNames = [enum]::GetNames([PSFramework.Runspace.RSTimeout]) -notmatch '^None$|^Undefined$'
+			if ($param.TimeoutType -notin $typeNames) {
+				Write-PSFMessage -Level Warning -Message "Invalid Test-Timeout Type configured: {0}. Available types: {1}. Defaulting to 'Idle'" -StringValues $param.TimeoutType, ($typeNames -join ', ')
+				$param.TimeoutType = 'Idle'
+			}
+		}
+	}
+
+	process {
+		$workflow = New-PSFRunspaceWorkflow -Name 'ZeroTrustAssessment.Tests' -Force
+		$null = $workflow | Add-PSFRunspaceWorker -Name Tester @param -Begin $begin -ScriptBlock $process -End $end
 		$workflow | Write-PSFRunspaceQueue -Name Input -BulkValues @($Tests) -Close
 		$workflow | Start-PSFRunspaceWorkflow
 		$workflow

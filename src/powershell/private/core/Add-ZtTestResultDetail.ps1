@@ -65,16 +65,16 @@ function Add-ZtTestResultDetail {
 		[Parameter(Mandatory = $false)]
 		[string] $Title,
 
-		[ValidateSet('NotConnectedAzure', 'NotConnectedExchange', 'NotDotGovDomain', 'NotLicensedEntraIDP1', 'NotConnectedSecurityCompliance',
+		[ValidateSet('NotConnectedAzure', 'NotConnectedExchange', 'NotConnectedSecurityCompliance', 'NotConnectedToService', 'NotLicensedEntraIDP1',
 		    'NotLicensedEntraIDP2', 'NotLicensedEntraIDGovernance', 'NotLicensedEntraWorkloadID', 'NotSupported', 'UnderConstruction',
-			'NotLicensedIntune', 'NoAzureAccess'
+			'NotLicensedIntune', 'NoAzureAccess', 'NotApplicable', 'NotDotGovDomain', 'NoCompatibleLicenseFound', 'TimeoutReached'
 		)]
 		[string] $SkippedBecause,
 
 		[ValidateSet('Catastrophic', 'High', 'Medium', 'Low')]
 		[string] $UserImpact,
 
-		[ValidateSet('High', 'Medium', 'Low')]
+		[ValidateSet('Critical', 'High', 'Medium', 'Low', 'Unranked')]
 		[string] $Risk,
 
 		[ValidateSet('High', 'Medium', 'Low')]
@@ -89,9 +89,20 @@ function Add-ZtTestResultDetail {
 		[string[]] $Tag,
 
 		# Optional. Custom status to return instead of the default status.
+		[Parameter()]
+		[ValidateSet('Investigate','Error')]
+		[string] $CustomStatus,
+
+		[ValidateSet('Graph', 'Azure', 'AipService', 'ExchangeOnline', 'SecurityCompliance', 'SharePointOnline')]
+		[string[]] $NotConnectedService,
+
+		# Optional. The Zero Trust pillar for the test. Used by dynamic tests (e.g. MDC) where no [ZtTest()] attribute exists.
+		[ValidateSet('Identity', 'Devices', 'Network', 'Data', 'Infrastructure', 'SecOps', 'AI')]
+		[string] $Pillar,
+
+		# Optional. The category for the test. Used by dynamic tests (e.g. MDC) where each row may have a different category.
 		[Parameter(Mandatory = $false)]
-		[ValidateSet('Investigate')]
-		[string] $CustomStatus
+		[string] $Category
 	)
 
 	#region Resolve Test Item
@@ -114,10 +125,25 @@ function Add-ZtTestResultDetail {
 	$hasGraphResults = $GraphObjects -and $GraphObjectType
 
 	if ($SkippedBecause) {
-		$SkippedReason = Get-ZtSkippedReason -SkippedBecause $SkippedBecause
+		if ($SkippedBecause -eq 'NotConnectedToService') {
+			$SkippedReason = (Get-ZtSkippedReason -SkippedBecause $SkippedBecause) -f ($NotConnectedService -join '", "')
+		}
+		elseif ($SkippedBecause -eq 'NoCompatibleLicenseFound') {
+			[string[]] $licenseGroupString = @($testMeta.CompatibleLicense).ForEach{ ($_ -split '&') -join '" AND "' }
+			$SkippedReason = (Get-ZtSkippedReason -SkippedBecause $SkippedBecause) -f ($licenseGroupString -join '") OR ("')
+		}
+		else {
+			$SkippedReason = Get-ZtSkippedReason -SkippedBecause $SkippedBecause
+		}
 
 		if (-not $Result) {
 			$Result = "Skipped. $SkippedReason"
+		}
+	}
+
+	if ($CustomStatus -eq 'Error') {
+		if ([string]::IsNullOrEmpty($Result)) {
+			$Result = 'An error occurred while running this test.'
 		}
 	}
 
@@ -151,43 +177,63 @@ function Add-ZtTestResultDetail {
 		$Result = $Result -replace "%TestResult%", $graphResultMarkdown
 	}
 
+	$Result = Protect-ZtReportText -Text $Result
+
 	# Check if the docs team have provided a title for the test and use it if available
 
 	$docsTitle = $Title # Default to the title provided in the parameter
 
-	if ($testMeta.Title) {
+	# For dynamic tests (where explicit params are passed), don't let testMeta override them.
+	# This allows functions like MDC that emit multiple rows with different titles/risk to work correctly.
+	if ($testMeta.Title -and -not $PSBoundParameters.ContainsKey('Title')) {
 		$docsTitle = $testMeta.Title
 	}
-	if ($testMeta.Category) {
-		$category = $testMeta.Category
+	if ($testMeta.Category -and -not $PSBoundParameters.ContainsKey('Category')) {
+		$Category = $testMeta.Category
 	}
-	if ($testMeta.RiskLevel) {
+	if ($testMeta.RiskLevel -and -not $PSBoundParameters.ContainsKey('Risk')) {
 		$Risk = $testMeta.RiskLevel
 	}
-	if ($testMeta.ImplementationCost) {
+	if ($testMeta.ImplementationCost -and -not $PSBoundParameters.ContainsKey('ImplementationCost')) {
 		$ImplementationCost = $testMeta.ImplementationCost
 	}
-	if ($testMeta.UserImpact) {
+	if ($testMeta.UserImpact -and -not $PSBoundParameters.ContainsKey('UserImpact')) {
 		$UserImpact = $testMeta.UserImpact
 	}
+
+	$getZtTestStatusParams = @{
+		Status         = $Status
+		SkippedBecause = $SkippedBecause
+	}
+
+	if ($CustomStatus) {
+		$getZtTestStatusParams.CustomStatus = $CustomStatus
+	}
+
+	# Resolve pillar: explicit -Pillar parameter wins (for dynamic tests), fall back to testMeta
+	$resolvedPillar = if ($PSBoundParameters.ContainsKey('Pillar')) { $Pillar } elseif ($testMeta.Pillar) { $testMeta.Pillar } else { $null }
 
 	$testInfo = @{
 		TestId                 = $actualTestId
 		TestTitle              = $docsTitle
-		TestStatus             = Get-ZtTestStatus -Status $Status -SkippedBecause $SkippedBecause -CustomStatus $CustomStatus
-		TestCategory           = $category
+		TestStatus             = Get-ZtTestStatus @getZtTestStatusParams
+		TestCategory           = $Category
 		TestTags               = $Tag
 		TestAppliesTo          = $AppliesTo
 		TestImpact             = $UserImpact
 		TestRisk               = $Risk
 		TestImplementationCost = $ImplementationCost
 		TestSfiPillar          = $testMeta.SfiPillar
-		TestPillar             = $testMeta.Pillar
+		TestPillar             = $resolvedPillar
 		TestMinimumLicense     = $testMeta.MinimumLicense
 		TestDescription        = $Description
 		TestResult             = $Result
 		TestSkipped            = $SkippedBecause
 		SkippedReason          = $SkippedReason
+	}
+
+	if ($testMeta.CompatibleLicense) {
+		$testInfo.TestMinimumLicense = $testMeta.CompatibleLicense.ForEach{ ($_ -split '&') -join ' AND ' }
 	}
 
 	Write-ZtProgress -Activity "Running tests" -Status $docsTitle

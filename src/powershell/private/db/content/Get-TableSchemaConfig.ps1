@@ -23,6 +23,11 @@ function Get-TableSchemaConfig {
     )
 
     $configs = @{
+        'ServicePrincipal' = @{
+            'use_union_by_name' = $true
+            'sample_size' = 50
+            'reason' = 'customSecurityAttributes is an open complex type with varying nested keys across service principals'
+        }
         'ServicePrincipalSignIn' = @{
             'use_union_by_name' = $true
             'sample_size' = 50  # Sample more files to avoid schema inference issues
@@ -32,6 +37,11 @@ function Get-TableSchemaConfig {
             'use_union_by_name' = $true
             'sample_size' = 20  # Sample more files to avoid schema inference issues
             'reason' = 'Sign-in logs may have similar mixed data type issues'
+        }
+        'ConfigurationPolicy' = @{
+            'use_union_by_name' = $true
+            'sample_size' = 50
+            'reason' = 'Contains complex nested objects (settings, assignments) that may vary'
         }
     }
 

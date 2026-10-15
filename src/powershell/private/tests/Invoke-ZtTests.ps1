@@ -20,6 +20,26 @@
 		Maximum number of tests processed in parallel.
 		Defaults to: 5
 
+	.PARAMETER LogsPath
+		Optional path to output logs for each test. If not specified, logs will not be written
+		to disk but will still be available in the database.
+
+	.PARAMETER Timeout
+		The maximum time to wait for all tests to complete before giving up and writing a warning message.
+		Defaults to: 24 hours. Adjust this value if you have a large number of tests or expect some tests to take a long time.
+
+	.PARAMETER ConnectedService
+		The services that are connected and can be used for testing.
+		This is used to skip tests that require a service connection when the service is not connected.
+		If not specified, it will use the value from $script:ConnectedService, which is set based on the
+		connected services populated by Connect-ZtAssessment.
+
+	.PARAMETER TestTimeout
+		Maximum time a single test is allowed to run.
+		Defaults to: 60 minutes ('60m'). Set to 0 to disable.
+		For Data pillar tests and external-module/remoting-heavy operations,
+		this is a best-effort interruption rather than a guaranteed hard stop.
+
 	.EXAMPLE
 		PS C:\> Invoke-ZtTests -Database $database -Tests $Tests -Pillar $Pillar -ThrottleLimit $TestThrottleLimit
 
@@ -33,12 +53,26 @@
 		[string[]]
 		$Tests,
 
-		[ValidateSet('All', 'Identity', 'Devices')]
+		[ValidateSet('All', 'Identity', 'Devices', 'Network', 'Data', 'Infrastructure', 'SecOps', 'AI')]
 		[string]
 		$Pillar = 'All',
 
 		[int]
-		$ThrottleLimit = 5
+		$ThrottleLimit = 5,
+
+		[string]
+		$LogsPath,
+
+		[Parameter(DontShow)]
+		[ValidateSet('Graph', 'Azure', 'AipService', 'ExchangeOnline', 'SecurityCompliance', 'SharePointOnline')]
+		[string[]]
+		$ConnectedService = $script:ConnectedService,
+
+		[TimeSpan]
+		$Timeout = '1.00:00:00',
+
+		[PSFTimeSpan]
+		$TestTimeout = '60m'
 	)
 
 	# Get Tenant Type (AAD = Workforce, CIAM = EEID)
@@ -53,18 +87,85 @@
 	}
 
 	$testsToRun = Get-ZtTest -Tests $Tests -Pillar $Pillar -TenantType $tenantTypeMapping[$TenantType]
+	# Store the requested pillar so Get-ZtAssessmentResults can restrict TestPillar on cross-ref tests
+	$script:__ZtSession.RequestedPillar = $Pillar
 
+	# Filter based on preview feature flag.
+	# In non-preview mode, only stable pillars are included in the run list.
+	# Preview mode keeps the full set returned by Get-ZtTest.
+	$stablePillars = @('Identity', 'Devices', 'Network', 'Data', 'Infrastructure', 'SecOps', 'AI')
+	if (-not $script:__ZtSession.PreviewEnabled) {
+		$testsToRun = $testsToRun.Where{ ($_.Pillar | Where-Object { $_ -in $stablePillars }) }
+	}
+
+	# Filter based on Compatible licenses
+	$skippedTestsForLicense = $testsToRun.Where{$_.CompatibleLicense.Count -gt 0 -and (-not (Test-ZtLicense -CompatibleLicense $_.CompatibleLicense)) }
+	$skippedTestsForLicense.ForEach{
+		Write-PSFMessage -Message ('Test {0} is skipped because no compatible license was found' -f $_.TestId) -Level Verbose
+		Add-ZtTestResultDetail -SkippedBecause NoCompatibleLicenseFound -TestId $_.TestId
+	}
+
+	$testsToRun = $testsToRun.Where{ $_.TestId -notin $skippedTestsForLicense.TestId }
+
+	# Filter based on service connection. If no service is specified in the test metadata, it will be run.
+	$skippedTestsForService = $testsToRun.Where{ $_.Service.count -gt 0 -and $_.Service.Count -notin $_.Service.Where{ $_ -in $ConnectedService}.count }
+	$skippedTestsForService.ForEach{
+		$notConnectedService = ($_).Service.Where{ $_ -notin $ConnectedService }
+		# Mark the test as skipped.
+		Write-PSFMessage -Message ('Test {0} is skipped because no service connection was found' -f $_.TestId) -Level Verbose
+		Add-ZtTestResultDetail -SkippedBecause NotConnectedToService -TestId $_.TestId -NotConnectedService $notConnectedService
+	}
+
+	$testsToRun = $testsToRun.Where{ $_.TestId -notin $skippedTestsForService.TestId }
+
+	# Separate Sync Tests (Compliance/ExchangeOnline/SharePointOnline/AIP) from Parallel Tests (because of DLL order to manage in runspaces & remoting into WPS)
+	# Tests that depend on SecurityCompliance/ExchangeOnline/SharePointOnline/AIPService must run on the main thread
+	# regardless of pillar: those services expose their cmdlets through dynamically-generated, connection-bound
+	# proxy modules (Connect-IPPSSession / Connect-ExchangeOnline / Connect-SPOService / Connect-AipService) that only exist in the
+	# main runspace where Connect-ZtAssessment ran. In a worker runspace those cmdlets are "not recognized",
+	# so such tests would incorrectly skip (e.g. Get-SafeLinksPolicy, Get-OrganizationConfig, Get-SPOTenant).
+	$mainThreadServices = 'SecurityCompliance', 'ExchangeOnline', 'SharePointOnline', 'AipService'
+
+	$syncTests, $parallelTests = $testsToRun.Where({
+		$_.Pillar -contains 'Data' -or
+		@($_.Service).Where({ $_ -in $mainThreadServices })
+	}, 'Split')
+
+	[dateTime] $startTime = [datetime]::Now
+	$workflow = $null
 	try {
-		$workflow = Start-ZtTestExecution -Tests $testsToRun -DbPath $Database.Database -ThrottleLimit $ThrottleLimit
-		Wait-ZtTest -Workflow $workflow
+		# Run Sync Tests in the main thread
+		foreach ($test in $syncTests) {
+			$null = Invoke-ZtTest -Test $test -Database $Database -LogsPath $LogsPath -TestTimeout $TestTimeout
+		}
+
+		# Then run Parallel Tests
+		if ($parallelTests) {
+			$workflow = Start-ZtTestExecution -Tests $parallelTests -DbPath $Database.Database -ThrottleLimit $ThrottleLimit -LogsPath $LogsPath -TestTimeout $TestTimeout
+			Wait-ZtTest -Workflow $workflow -StartedAt $startTime -Timeout $Timeout
+			$workflow.Queues['Input'].ForEach{
+				Write-PSFMessage -Level Debug -Message "Test $_ was not processed before timeout was reached."
+				Add-ZtTestResultDetail -SkippedBecause TimeoutReached -TestId $_
+			}
+		}
 	}
 	finally {
 		if ($workflow) {
 			# Disable CTRL+C to prevent impatient users from finishing the cleanup. Failing to do so may lead to a locked database, preventing a clean restart.
-			Disable-PSFConsoleInterrupt
+			Invoke-ZtSafeConsoleInterruptToggle -Disable
 			$workflow | Stop-PSFRunspaceWorkflow
-			$workflow | Remove-PSFRunspaceWorkflow
+			foreach ($fail in $workflow.Workers.Tester.Errors) {
+				if ($script:__ZtSession.TestStatistics.Value[$fail.TargetObject.TestID]) {
+					Write-PSFMessage -Level Verbose -Message 'Error processing test {0}, will show up in the Dashboard as failed.' -StringValues $fail.TargetObject.TestID -ErrorRecord $fail.Error -Target $fail.TargetObject -Tag TestFail, Handled
+				}
+				else {
+					Write-PSFMessage -Level Warning -Message 'System Error processing test {0}, will not show up in the Dashboard.' -StringValues $fail.TargetObject.TestID -ErrorRecord $fail.Error -Target $fail.TargetObject -Tag TestFail, Unhandled
+				}
+			}
+			if (-not (Get-PSFConfigValue -FullName 'ZeroTrustAssessment.Debug.KeepWorkflows')) {
+				$workflow | Remove-PSFRunspaceWorkflow
+			}
+			Invoke-ZtSafeConsoleInterruptToggle -Enable
 		}
-		Enable-PSFConsoleInterrupt
 	}
 }

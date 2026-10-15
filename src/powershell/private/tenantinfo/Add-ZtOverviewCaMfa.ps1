@@ -1,4 +1,3 @@
-
 <#
 .SYNOPSIS
     Calculates the CA summary data from sign in logs for the overiew report and adds it to the tenant info.
@@ -19,10 +18,10 @@ function Add-ZtOverviewCaMfa {
 			$Database
 		)
 
-		$caMfa = @($Results).Where{ $_.conditionalAccessStatus -eq 'success' -and $_.authenticationRequirement -eq 'multiFactorAuthentication' }.cnt -as [int]
-		$caNoMfa = @($Results).Where{ $_.conditionalAccessStatus -eq 'success' -and $_.authenticationRequirement -eq 'singleFactorAuthentication' }.cnt -as [int]
-		$noCaMfa = @($Results).Where{ $_.conditionalAccessStatus -eq 'notApplied' -and $_.authenticationRequirement -eq 'multiFactorAuthentication' }.cnt -as [int]
-		$noCaNoMfa = @($Results).Where{ $_.conditionalAccessStatus -eq 'notApplied' -and $_.authenticationRequirement -eq 'singleFactorAuthentication' }.cnt -as [int]
+		$caMfa = (@($Results).Where{ $_.conditionalAccessStatus -eq 'success' -and $_.authenticationRequirement -eq 'multiFactorAuthentication' }.cnt -as [int]) ?? 0
+		$caNoMfa = (@($Results).Where{ $_.conditionalAccessStatus -eq 'success' -and $_.authenticationRequirement -eq 'singleFactorAuthentication' }.cnt -as [int]) ?? 0
+		$noCaMfa = (@($Results).Where{ $_.conditionalAccessStatus -eq 'notApplied' -and $_.authenticationRequirement -eq 'multiFactorAuthentication' }.cnt -as [int]) ?? 0
+		$noCaNoMfa = (@($Results).Where{ $_.conditionalAccessStatus -eq 'notApplied' -and $_.authenticationRequirement -eq 'singleFactorAuthentication' }.cnt -as [int]) ?? 0
 
 		$nodes = @(
 			@{
@@ -85,6 +84,13 @@ group by conditionalAccessStatus, authenticationRequirement
 
 
 	$results = Invoke-DatabaseQuery -Database $Database -Sql $sql
+	# Handle if SignIn table doesn't exist or is empty
+	if ($null -eq $results -or $results.Count -eq 0) {
+		Write-PSFMessage "SignIn table is empty or doesn't exist." -Tag Test -Level VeryVerbose
+		Add-ZtTenantInfo -Name $tenantInfoName -Value $null
+		return
+	}
+
 	$caSummary = Get-ZtiOverviewCaMfa -Results $results -Database $Database
 	Add-ZtTenantInfo -Name $tenantInfoName -Value $caSummary
 }

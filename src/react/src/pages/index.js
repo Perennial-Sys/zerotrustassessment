@@ -1,184 +1,590 @@
-import clsx from "clsx";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "@docusaurus/Link";
-import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
+import useBaseUrl from "@docusaurus/useBaseUrl";
 import Layout from "@theme/Layout";
-import HomepageFeatures from "@site/src/components/HomepageFeatures";
-
-import Heading from "@theme/Heading";
+import Translate, { translate } from "@docusaurus/Translate";
+import useEmblaCarousel from "embla-carousel-react";
+import Autoplay from "embla-carousel-autoplay";
+import Fade from "embla-carousel-fade";
+import { IoChevronBackSharp, IoChevronForwardSharp } from "react-icons/io5";
 import styles from "./index.module.css";
 
-import { msalConfig, loginRequest, apiConfig } from "../authConfig";
+/* ─── Hero Carousel data ─────────────────────────────────── */
+const SLIDES = [
+  {
+    img: "/img/zt-framework.png",
+    alt: "Zero Trust Framework — Identity, Endpoints, Data, Apps, Infrastructure, Network, AI Resources",
+    caption: "Zero Trust Framework",
+    href: "https://aka.ms/zerotrust",
+  },
+  {
+    img: "/img/zt-workshop-screenshot2.png",
+    alt: "Zero Trust Workshop tool — plan across all eight pillars",
+    caption: "Zero Trust Workshop",
+    href: "https://zerotrust.microsoft.com/",
+    contain: true,
+  },
+  {
+    img: "/img/zt-assessment-screenshot2.png",
+    alt: "Zero Trust Assessment dashboard — tenant overview and scores",
+    caption: "Zero Trust Assessment",
+    href: "https://learn.microsoft.com/security/zero-trust/assessment/get-started",
+    contain: true,
+  },
+];
 
+/* ─── Carousel component ─────────────────────────────────── */
+function HeroCarousel() {
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
-import Translate, { translate } from '@docusaurus/Translate';
+  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true }, [
+    Fade(),
+    Autoplay({ delay: 5000, stopOnInteraction: false, stopOnMouseEnter: true }),
+  ]);
 
-import {
-  FluentProvider,
-  teamsLightTheme,
-  teamsDarkTheme,
-} from "@fluentui/react-components";
+  // resolve baseUrl for each slide image
+  const resolvedSlides = SLIDES.map((s) => ({
+    ...s,
+    imgSrc: useBaseUrl(s.img),
+  }));
 
-import {
-  Dialog,
-  DialogTrigger,
-  DialogSurface,
-  DialogTitle,
-  DialogBody,
-  DialogActions,
-  DialogContent,
-  Button,
-} from "@fluentui/react-components";
+  const onSelect = useCallback(() => {
+    if (!emblaApi) return;
+    setSelectedIndex(emblaApi.selectedScrollSnap());
+  }, [emblaApi]);
 
-import { Spinner } from "@fluentui/react-components";
+  useEffect(() => {
+    if (!emblaApi) return;
+    emblaApi.on("select", onSelect);
+    onSelect();
+    return () => emblaApi.off("select", onSelect);
+  }, [emblaApi, onSelect]);
 
-import {
-  AuthenticatedTemplate,
-  UnauthenticatedTemplate,
-  useMsal,
-  MsalProvider,
-} from "@azure/msal-react";
-import { PublicClientApplication } from "@azure/msal-browser";
+  const scrollPrev = useCallback(
+    () => emblaApi && emblaApi.scrollPrev(),
+    [emblaApi]
+  );
+  const scrollNext = useCallback(
+    () => emblaApi && emblaApi.scrollNext(),
+    [emblaApi]
+  );
+  const goTo = useCallback(
+    (idx) => emblaApi && emblaApi.scrollTo(idx),
+    [emblaApi]
+  );
 
-const pca = new PublicClientApplication(msalConfig);
-
-function HomepageHeader() {
-  const { siteConfig } = useDocusaurusContext();
-  const { instance, accounts, inProgress } = useMsal();
-  const [showProgress, setShowProgress] = useState(false);
-  const [showErrorAlert, setShowErrorAlert] = useState(false);
-
-  const runAssessment = async () => {
-    setShowProgress(true);
-    setShowErrorAlert(false);
-
-    let policy = {
-      isMaskUser: false,
-    };
-
-    if (!instance.getActiveAccount() && instance.getAllAccounts().length > 0) {
-      instance.setActiveAccount(instance.getAllAccounts()[0]);
-    }
-
-    const response = await instance.acquireTokenSilent({
-      ...loginRequest,
-    });
-    let accessToken = response.accessToken;
-
-    const options = {
-      method: "POST",
-      headers: {
-        "Content-type": "application/json",
-        "X-DocumentGeneration-Token": accessToken,
-      },
-      body: JSON.stringify(policy),
-    };
-
-    fetch(apiConfig.apiEndPoint + "/document", options)
-      .then((response) => {
-        if (response.ok) {
-          return response.blob();
-        }
-        return null;
-      })
-      .then((blob) => {
-        if (blob === null) {
-          setShowErrorAlert(true);
-        } else {
-          // 2. Create blob link to download
-          const url = window.URL.createObjectURL(new Blob([blob]));
-          const link = document.createElement("a");
-          link.href = url;
-          link.setAttribute("download", `Zero Trust Assessment.xlsx`);
-          // 3. Append to html page
-          document.body.appendChild(link);
-          // 4. Force download
-          link.click();
-          // 5. Clean up and remove the link
-          link.parentNode.removeChild(link);
-        }
-        setShowProgress(false);
-      })
-      .catch((error) => {
-        setShowErrorAlert(true);
-        setShowProgress(false);
-      });
-  };
-
-  const doDialogCancel = (state) => {
-    console.log(state);
-  };
   return (
-
-    <header className="hero-banner">
-      <div className="hero-content">
-        <div className="hero-text">
-          <Heading as="h1" className="hero__title">
-            <Translate id="homepage.title">Microsoft Zero Trust Workshop</Translate>
-          </Heading>
-          <p>
-            <Translate id="homepage.description">
-              A comprehensive technical guide to help customers and partners adopt a Zero Trust strategy and deploy security solutions end-to-end to secure their organizations.
-            </Translate>
-          </p>
-        </div>
-        <div className="hero-image">
-          <img src={require('@site/static/img/hero-datacenter.png').default} alt="Zero Trust Concept" />
+    <div className={styles.carousel}>
+      <div className={styles.carouselViewport} ref={emblaRef}>
+        <div className={styles.carouselTrack}>
+          {resolvedSlides.map((slide, i) => (
+            <div className={styles.carouselSlide} key={i}>
+              <button
+                type="button"
+                className={`${styles.carouselSlideLink} ${
+                  slide.contain ? styles.carouselSlideLinkContain : ""
+                }`}
+                onClick={() =>
+                  document
+                    .getElementById("products")
+                    ?.scrollIntoView({ behavior: "smooth" })
+                }
+              >
+                <img src={slide.imgSrc} alt={slide.alt} />
+              </button>
+            </div>
+          ))}
         </div>
       </div>
-    </header>
 
-    // <header className={clsx("hero hero--primary", styles.heroBanner)}>
-    //   <div className="container">
-    //     <Heading as="h1" className="hero__title">
-    //       {siteConfig.title}
-    //     </Heading>
-    //     <p className="hero__subtitle">{siteConfig.tagline}</p>
-    //     <UnauthenticatedTemplate>
-    //       <h4>
-    //         Enhance your expertise and identify growth opportunities by scheduling a Zero Trust Workshop along with running a Zero Trust Assessment on your Microsoft Entra ID Tenant.
-    //       </h4>
-    //     </UnauthenticatedTemplate>
-    //   </div>
-    // </header>
+      <div className={styles.carouselControls}>
+        <button
+          className={styles.carouselArrow}
+          onClick={scrollPrev}
+          aria-label="Previous slide"
+        >
+          <IoChevronBackSharp />
+        </button>
+
+        <div className={styles.carouselDots}>
+          {SLIDES.map((_, i) => (
+            <button
+              key={i}
+              className={`${styles.carouselDot} ${
+                i === selectedIndex ? styles.carouselDotActive : ""
+              }`}
+              onClick={() => goTo(i)}
+              aria-label={`Go to slide ${i + 1}`}
+            />
+          ))}
+        </div>
+
+        <button
+          className={styles.carouselArrow}
+          onClick={scrollNext}
+          aria-label="Next slide"
+        >
+          <IoChevronForwardSharp />
+        </button>
+      </div>
+    </div>
   );
 }
 
+/* ─── Section 1: Hero ────────────────────────────────────── */
+function HeroSection() {
+  return (
+    <header className={styles.hero}>
+      <div className={styles.heroInner}>
+        <a className={styles.heroTagline} href="#whats-new">
+          <span className={styles.newBadge}>
+            <Translate id="badge.new">NEW</Translate>
+          </span>
+          <Translate id="hero.tagline">
+            New pillars and a redesigned Assessment Overview
+          </Translate>
+        </a>
+
+        <h1 className={styles.heroTitle}>
+          <Translate id="hero.title">
+            Accelerate Your Zero Trust Journey
+          </Translate>
+        </h1>
+
+        <p className={styles.heroSubtitle}>
+          <Translate id="hero.subtitle">
+            A comprehensive framework from Microsoft to help organizations
+            adopt a Zero Trust strategy and deploy security solutions
+            end-to-end.
+          </Translate>
+        </p>
+
+        <div className={styles.heroCtas}>
+          <div className={styles.heroPrimaryCtas}>
+            <Link
+              className={styles.ctaPrimary}
+              href="https://zerotrust.microsoft.com/"
+            >
+              <Translate id="hero.cta.workshop">Launch Workshop</Translate> →
+            </Link>
+            <Link
+              className={styles.ctaPrimary}
+              href="https://learn.microsoft.com/security/zero-trust/assessment/get-started"
+            >
+              <Translate id="hero.cta.assessment">Run Assessment</Translate> →
+            </Link>
+          </div>
+          <Link
+            className={styles.ctaSecondary}
+            href="https://microsoft.github.io/zerotrustassessment/demo/#/"
+          >
+            <Translate id="hero.cta.assessmentDemo">
+              View Assessment Demo
+            </Translate>{" "}
+            →
+          </Link>
+        </div>
+
+        <HeroCarousel />
+      </div>
+    </header>
+  );
+}
+
+/* ─── Section 2: Latest Updates ──────────────────────────── */
+function LatestUpdates() {
+  return (
+    <section id="whats-new" className={styles.aiSpotlight}>
+      <div className={styles.aiSpotlightInner}>
+        <div className={styles.aiPill}>
+          <Translate id="ai.pill">What&apos;s New</Translate>
+        </div>
+
+        <h2 className={styles.aiSpotlightTitle}>
+          <Translate id="ai.title">
+            More ways to plan and assess your Zero Trust journey
+          </Translate>
+        </h2>
+
+        <p className={styles.aiSpotlightDesc}>
+          <Translate id="ai.description">
+            The latest Workshop and Assessment releases expand pillar coverage
+            and make it easier to understand your current security posture.
+          </Translate>
+        </p>
+
+        <div className={styles.releaseGrid}>
+          <div className={styles.releaseItem}>
+            <div className={styles.releaseProduct}>
+              <Translate id="updates.workshop.name">
+                Zero Trust Workshop
+              </Translate>
+            </div>
+            <h3 className={styles.releaseTitle}>
+              <Translate id="updates.workshop.title">
+                Plan with the new DevSecOps pillar
+              </Translate>
+            </h3>
+            <p className={styles.releaseDesc}>
+              <Translate id="updates.workshop.description">
+                Bring application security and development practices into your
+                Zero Trust roadmap with dedicated DevSecOps guidance.
+              </Translate>
+            </p>
+            <Link
+              className={`${styles.pillarItem} ${styles.pillarHighlighted}`}
+              href="https://zerotrust.microsoft.com/"
+            >
+              <Translate id="pillar.devsecops">DevSecOps</Translate>
+            </Link>
+          </div>
+
+          <div className={styles.releaseItem}>
+            <div className={styles.releaseProduct}>
+              <Translate id="updates.assessment.name">
+                Zero Trust Assessment
+              </Translate>
+            </div>
+            <h3 className={styles.releaseTitle}>
+              <Translate id="updates.assessment.title">
+                Expanded assessment coverage
+              </Translate>
+            </h3>
+            <p className={styles.releaseDesc}>
+              <Translate id="updates.assessment.description">
+                Assess three additional pillars and explore your results in a
+                newly revamped Overview page.
+              </Translate>
+            </p>
+            <div className={styles.pillarRow}>
+              <Link
+                className={`${styles.pillarItem} ${styles.pillarHighlighted}`}
+                href="https://microsoft.github.io/zerotrustassessment/demo/#/infrastructure"
+              >
+                <Translate id="pillar.infrastructure">Infrastructure</Translate>
+              </Link>
+              <Link
+                className={`${styles.pillarItem} ${styles.pillarHighlighted}`}
+                href="https://microsoft.github.io/zerotrustassessment/demo/#/secops"
+              >
+                <Translate id="pillar.secops">Security Operations</Translate>
+              </Link>
+              <Link
+                className={`${styles.pillarItem} ${styles.pillarHighlighted}`}
+                href="https://microsoft.github.io/zerotrustassessment/demo/#/ai"
+              >
+                <Translate id="pillar.ai">AI</Translate>
+              </Link>
+              <Link
+                className={`${styles.pillarItem} ${styles.pillarHighlighted}`}
+                href="https://microsoft.github.io/zerotrustassessment/demo/"
+              >
+                <Translate id="updates.assessment.overview">
+                  Revamped Overview Page
+                </Translate>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Section 3: Two Product Cards ───────────────────────── */
+function ProductShowcase() {
+  const workshopImg = useBaseUrl("/img/zt-workshop-screenshot2.png");
+  const assessmentImg = useBaseUrl("/img/zt-assessment-screenshot2.png");
+  return (
+    <section id="products" className={styles.products}>
+      <div className={styles.productsInner}>
+        <div className={styles.productsHeader}>
+          <h2 className={styles.productsTitle}>
+            <Translate id="products.title">Two Tools, One Mission</Translate>
+          </h2>
+          <p className={styles.productsSubtitle}>
+            <Translate id="products.subtitle">
+              Whether you&apos;re planning your Zero Trust roadmap or measuring
+              your current posture, we have you covered.
+            </Translate>
+          </p>
+        </div>
+
+        <div className={styles.productGrid}>
+          {/* Workshop Card */}
+          <div className={styles.productCard}>
+            <div className={styles.productImageWrap}>
+              <img
+                src={workshopImg}
+                alt="Zero Trust Workshop tool"
+                loading="lazy"
+              />
+            </div>
+            <div className={styles.productBody}>
+              <div className={styles.productLabel}>
+                <Translate id="products.workshop.label">
+                  Interactive Planning Tool
+                </Translate>
+              </div>
+              <h3 className={styles.productName}>
+                <Translate id="products.workshop.name">
+                  Zero Trust Workshop
+                </Translate>
+              </h3>
+              <p className={styles.productDesc}>
+                <Translate id="products.workshop.description">
+                  Plan your Zero Trust deployment across eight pillars, now
+                  including DevSecOps. Prioritize tasks in a First-Then-Next
+                  structure and generate automated summaries and implementation
+                  plans.
+                </Translate>
+              </p>
+              <div className={styles.productTags}>
+                <span className={styles.productTag}>
+                  <Translate id="products.workshop.tag.pillars">
+                    8 Pillars
+                  </Translate>
+                </span>
+                <span
+                  className={`${styles.productTag} ${styles.productTagNew}`}
+                >
+                  <Translate id="products.workshop.tag.devsecops">
+                    New DevSecOps Pillar
+                  </Translate>
+                </span>
+                <span className={styles.productTag}>
+                  <Translate id="products.workshop.tag.summaries">
+                    Auto Summaries
+                  </Translate>
+                </span>
+                <span className={styles.productTag}>
+                  <Translate id="products.workshop.tag.plans">
+                    Implementation Plans
+                  </Translate>
+                </span>
+              </div>
+              <Link
+                className={styles.productCta}
+                href="https://zerotrust.microsoft.com/"
+              >
+                <Translate id="products.workshop.cta">
+                  Launch Workshop
+                </Translate>{" "}
+                →
+              </Link>
+            </div>
+          </div>
+
+          {/* Assessment Card */}
+          <div className={styles.productCard}>
+            <div className={styles.productImageWrap}>
+              <img
+                src={assessmentImg}
+                alt="Zero Trust Assessment dashboard"
+                loading="lazy"
+              />
+            </div>
+            <div className={styles.productBody}>
+              <div className={styles.productLabel}>
+                <Translate id="products.assessment.label">
+                  Automated Tenant Analysis
+                </Translate>
+              </div>
+              <h3 className={styles.productName}>
+                <Translate id="products.assessment.name">
+                  Zero Trust Assessment
+                </Translate>
+              </h3>
+              <p className={styles.productDesc}>
+                <Translate id="products.assessment.description">
+                  Connect to your Microsoft Entra tenant and get an automated
+                  assessment across seven Zero Trust pillars, now including
+                  Infrastructure, Security Operations, and AI. See actionable
+                  insights in the newly revamped Overview page.
+                </Translate>
+              </p>
+              <div className={styles.productTags}>
+                <span className={styles.productTag}>
+                  <Translate id="products.assessment.tag.pillars">
+                    7 Pillars
+                  </Translate>
+                </span>
+                <span
+                  className={`${styles.productTag} ${styles.productTagNew}`}
+                >
+                  <Translate id="products.assessment.tag.infrastructure">
+                    Infrastructure
+                  </Translate>
+                </span>
+                <span
+                  className={`${styles.productTag} ${styles.productTagNew}`}
+                >
+                  <Translate id="products.assessment.tag.secops">
+                    Security Operations
+                  </Translate>
+                </span>
+                <span
+                  className={`${styles.productTag} ${styles.productTagNew}`}
+                >
+                  <Translate id="products.assessment.tag.ai">AI</Translate>
+                </span>
+                <span className={styles.productTag}>
+                  <Translate id="products.assessment.tag.overview">
+                    Summary + Pillar-Specific Views
+                  </Translate>
+                </span>
+              </div>
+              <Link
+                className={styles.productCta}
+                href="https://learn.microsoft.com/security/zero-trust/assessment/get-started"
+              >
+                <Translate id="products.assessment.cta">
+                  Run Assessment
+                </Translate>{" "}
+                →
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Section 4: How It Works ────────────────────────────── */
+function HowItWorks() {
+  return (
+    <section className={styles.howItWorks}>
+      <div className={styles.howItWorksInner}>
+        <h2 className={styles.howItWorksTitle}>
+          <Translate id="howItWorks.title">How It Works</Translate>
+        </h2>
+        <p className={styles.howItWorksSubtitle}>
+          <Translate id="howItWorks.subtitle">
+            Three steps to improve your organization&apos;s security posture.
+          </Translate>
+        </p>
+
+        <div className={styles.stepsGrid}>
+          <div className={styles.step}>
+            <div className={styles.stepNumber}>1</div>
+            <h3 className={styles.stepTitle}>
+              <Translate id="howItWorks.step1.title">Learn</Translate>
+            </h3>
+            <p className={styles.stepDesc}>
+              <Translate id="howItWorks.step1.description">
+                Understand Zero Trust principles — Verify Explicitly, Least
+                Privilege Access, and Assume Compromise — and how they apply to
+                your environment.
+              </Translate>
+            </p>
+            <Link className={styles.stepLink} href="https://aka.ms/zerotrust">
+              <Translate id="howItWorks.step1.link">
+                Explore Microsoft Zero Trust
+              </Translate>{" "}
+              →
+            </Link>
+          </div>
+
+          <div className={styles.step}>
+            <div className={styles.stepNumber}>2</div>
+            <h3 className={styles.stepTitle}>
+              <Translate id="howItWorks.step2.title">Plan</Translate>
+            </h3>
+            <p className={styles.stepDesc}>
+              <Translate id="howItWorks.step2.description">
+                Use the Workshop to build a concrete Zero Trust roadmap across
+                all pillars. Prioritize tasks and generate implementation plans
+                tailored to your organization.
+              </Translate>
+            </p>
+            <Link
+              className={styles.stepLink}
+              href="https://zerotrust.microsoft.com/"
+            >
+              <Translate id="howItWorks.step2.link">Open Workshop</Translate> →
+            </Link>
+          </div>
+
+          <div className={styles.step}>
+            <div className={styles.stepNumber}>3</div>
+            <h3 className={styles.stepTitle}>
+              <Translate id="howItWorks.step3.title">Assess</Translate>
+            </h3>
+            <p className={styles.stepDesc}>
+              <Translate id="howItWorks.step3.description">
+                Run the Assessment against your Microsoft Entra tenant to
+                measure your current posture, identify gaps, and track progress
+                over time.
+              </Translate>
+            </p>
+            <Link
+              className={styles.stepLink}
+              href="https://learn.microsoft.com/security/zero-trust/assessment/get-started"
+            >
+              <Translate id="howItWorks.step3.link">Run Assessment</Translate> →
+            </Link>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Section 5: Video + Getting Started ─────────────────── */
+function GetStarted() {
+  return (
+    <section className={styles.getStarted}>
+      <div className={styles.getStartedInner}>
+        <div className={styles.videoWrap}>
+          <iframe
+            src="https://www.youtube.com/embed/0-IYLWMHxGg?si=JyV0MuwIUBDKoFpN"
+            title="Zero Trust Workshop — Introduction"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerPolicy="strict-origin-when-cross-origin"
+            allowFullScreen
+          />
+        </div>
+        <div className={styles.getStartedText}>
+          <h2>
+            <Translate id="getStarted.title">Ready to Get Started?</Translate>
+          </h2>
+          <p>
+            <Translate id="getStarted.description">
+              Follow our step-by-step plan to deliver a Zero Trust strategy
+              session. Whether you&apos;re a Microsoft partner or running an
+              internal workshop, the guide walks you through preparation,
+              delivery, and follow-up.
+            </Translate>
+          </p>
+          <Link className={styles.getStartedCta} href="guide">
+            <Translate id="getStarted.cta">View Step-by-Step Plan</Translate> →
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Page ───────────────────────────────────────────────── */
 export default function Home() {
-  const { siteConfig } = useDocusaurusContext();
   return (
     <Layout
-      title={`Microsoft Zero Trust Assessment`}
-      description="Check your Microsoft tenant configuration for zero trust readiness"
+      title={translate({
+        id: "home.layout.title",
+        message: "Microsoft Zero Trust Workshop & Assessment",
+      })}
+      description={translate({
+        id: "home.layout.description",
+        message:
+          "Plan with the new DevSecOps pillar in the Zero Trust Workshop and assess Infrastructure, Security Operations, and AI in the updated Assessment.",
+      })}
     >
-      <MsalProvider instance={pca}>
-        <FluentProvider theme={teamsDarkTheme}>
-          <HomepageHeader />
-        </FluentProvider>
-      </MsalProvider>
-      <main>
-        <br />
-        {/* <h3 className="text--center padding-horiz--md">
-          What Does Our Zero Trust Workshop Provide?
-        </h3>
-        <div className="container">
-          <p>
-            Lorem ipsum odor amet, consectetuer adipiscing elit. Euismod vestibulum adipiscing sociosqu; proin lobortis molestie cras interdum at. Posuere aptent at hendrerit gravida, convallis euismod ullamcorper. Habitasse ultricies sem eleifend facilisis duis curae placerat. Euismod metus auctor rhoncus potenti pellentesque volutpat nascetur. Mollis class potenti aptent et, potenti rhoncus. Primis eu taciti blandit, at ad lectus. Torquent praesent phasellus malesuada posuere id nostra. Nunc torquent condimentum morbi dui elementum vel arcu aenean. Duis efficitur vestibulum ligula duis ex non felis.
-          </p>
-        </div> */}
-
-        <HomepageFeatures />
-        {/* <WhatIsZeroTrust />
-
-        <div className={styles.buttons}>
-          <Link
-            className="button button--secondary button--lg"
-            href="https://aka.ms/zerotrust">
-            Learn more about Microsoft Zero Trust
-          </Link>
-        </div> */}
-
-      </main>
+      <HeroSection />
+      <LatestUpdates />
+      <ProductShowcase />
+      <HowItWorks />
+      <GetStarted />
     </Layout>
   );
 }

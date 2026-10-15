@@ -7,7 +7,7 @@
 
 function Test-Assessment-24552 {
     [ZtTest(
-    	Category = 'Device',
+    	Category = 'Devices',
     	ImplementationCost = 'Low',
     	MinimumLicense = ('Intune'),
     	Pillar = 'Devices',
@@ -19,35 +19,37 @@ function Test-Assessment-24552 {
     	UserImpact = 'High'
     )]
     [CmdletBinding()]
-    param()
-
-    #region Helper Functions
-function Test-PolicyAssignment {
-    [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $false)]
-        [array]$Policies
+        $Database
     )
 
-    # Return false if $Policies is null or empty
-    if (-not $Policies) {
-        return $false
-    }
+    #region Helper Functions
+    function Test-PolicyAssignment {
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory = $false)]
+            [array]$Policies
+        )
 
-    # Check if at least one policy has assignments
-    $assignedPolicies = $Policies | Where-Object {
-        $_.PSObject.Properties.Match("assignments") -and $_.assignments -and $_.assignments.Count -gt 0
-    }
+        # Return false if $Policies is null or empty
+        if (-not $Policies) {
+            return $false
+        }
 
-    return $assignedPolicies.Count -gt 0
-}
+        # Check if at least one policy has assignments
+        $assignedPolicies = $Policies | Where-Object {
+            $_.PSObject.Properties.Match("assignments") -and $_.assignments -and $_.assignments.Count -gt 0
+        }
+
+        return $assignedPolicies.Count -gt 0
+    }
 
     #endregion Helper Functions
 
     #region Data Collection
     Write-PSFMessage '🟦 Start' -Tag Test -Level VeryVerbose
 
-    if( -not (Get-ZtLicense Intune) ) {
+    if ( -not (Get-ZtLicense Intune) ) {
         Add-ZtTestResultDetail -SkippedBecause NotLicensedIntune
         return
     }
@@ -55,25 +57,43 @@ function Test-PolicyAssignment {
     $activity = "Checking macOS Firewall Policy is Created and Assigned"
     Write-ZtProgress -Activity $activity -Status "Getting policy"
 
-    # Retrieve all macOS policies
-    $macOSPolicies_Uri = "deviceManagement/configurationPolicies?`$filter=(platforms has 'macOS') and (technologies has 'mdm' and technologies has 'appleRemoteManagement')&`$expand=settings,assignments"
-    $macOSPolicies = Invoke-ZtGraphRequest -RelativeUri $macOSPolicies_Uri -ApiVersion beta
+    # Query: Retrieve all macOS policies with mdm and appleRemoteManagement technologies.
+    # Settings and assignments are returned as JSON for PowerShell-side filtering,
+    # avoiding DuckDB list_transform lambda issues when data is null or absent.
+    $sql = @"
+    SELECT id, name, to_json(settings) as settings, to_json(assignments) as assignments
+    FROM ConfigurationPolicy
+    WHERE platforms LIKE '%macOS%'
+      AND technologies LIKE '%mdm%'
+      AND technologies LIKE '%appleRemoteManagement%'
+"@
+    $macOSAllPolicies = Invoke-DatabaseQuery -Database $Database -Sql $sql -AsCustomObject
 
-    if($macOSPolicies ) {
-        $macOSPolicies = $macOSPolicies | Where-Object { $_.settings.settingInstance.SettingDefinitionID -eq 'com.apple.security.firewall_com.apple.security.firewall' }
+    # Parse JSON fields
+    foreach ($policy in $macOSAllPolicies) {
+        if ($policy.settings -is [string]) {
+            $policy.settings = $policy.settings | ConvertFrom-Json
+        }
+        if ($policy.assignments -is [string]) {
+            $policy.assignments = $policy.assignments | ConvertFrom-Json
+        }
     }
 
+    # Filter to only policies that contain the macOS firewall setting definition
+    $macOSFirewallPolicies = @($macOSAllPolicies | Where-Object {
+        $_.settings.settingInstance.settingDefinitionId -contains 'com.apple.security.firewall_com.apple.security.firewall'
+    })
+
     # Filter policies to include only those related to firewall settings
-    $macOSFirewallPolicies = @()
-    foreach ($macOSPolicy in $macOSPolicies) {
+    foreach ($macOSPolicy in $macOSFirewallPolicies) {
         $validSettingIds = @('com.apple.security.firewall_enablefirewall_true')
 
-        # Get all setting definition IDs from the policy (handle both single values and arrays)
-        $policySettingIds = $macOSPolicy.settings.settingInstance.groupSettingCollectionValue.Children.choiceSettingValue.value
-
-        # Convert to array if it's a single value to ensure consistent handling
-        if ($policySettingIds -isnot [array]) {
-            $policySettingIds = @($policySettingIds)
+        # Get all choice values from the firewall setting's children (PowerShell-side, avoids DuckDB lambda issues)
+        $firewallSetting = $macOSPolicy.settings | Where-Object { $_.settingInstance.settingDefinitionId -eq 'com.apple.security.firewall_com.apple.security.firewall' } | Select-Object -First 1
+        $policySettingIds = if ($firewallSetting -and $firewallSetting.settingInstance.groupSettingCollectionValue) {
+            @($firewallSetting.settingInstance.groupSettingCollectionValue[0].children.choiceSettingValue.value)
+        } else {
+            @()
         }
 
         # Check if any of the policy's setting IDs match our valid setting IDs
@@ -81,16 +101,13 @@ function Test-PolicyAssignment {
         foreach ($settingId in $policySettingIds) {
             if ($validSettingIds -contains $settingId) {
                 $hasValidSetting = $true
-                [PSFramework.Object.ObjectHost]::AddNoteProperty($macOSPolicy,'FirewallSettings', $true)
+                [PSFramework.Object.ObjectHost]::AddNoteProperty($macOSPolicy, 'FirewallSettings', $true)
                 break
-            }
-            else{
-                [PSFramework.Object.ObjectHost]::AddNoteProperty($macOSPolicy,'FirewallSettings', $false)
             }
         }
 
-        if ($hasValidSetting) {
-            $macOSFirewallPolicies += $macOSPolicy
+        if (-not $hasValidSetting) {
+             [PSFramework.Object.ObjectHost]::AddNoteProperty($macOSPolicy, 'FirewallSettings', $false)
         }
     }
     #endregion Data Collection
@@ -99,8 +116,8 @@ function Test-PolicyAssignment {
     $passed = $false
     $testResultMarkdown = ""
 
-    # Test macOS firewall policy assignments
-    $passed = Test-PolicyAssignment -Policies $macOSFirewallPolicies
+    # Test macOS firewall policy assignments — only policies with firewall actually enabled count
+    $passed = Test-PolicyAssignment -Policies ($macOSFirewallPolicies | Where-Object { $_.FirewallSettings -eq $true })
 
     if ($passed) {
         $testResultMarkdown = "A macOS firewall policy is configured and assigned in Intune.`n`n%TestResult%"
@@ -123,39 +140,34 @@ function Test-PolicyAssignment {
 
 ## {0}
 
-| Policy Name | Status | Assignment Target | Firewall Status |
-| :---------- | :----- | :---------------- | :--------------- |
+| Policy name | Status | Assignment target | Firewall status |
+| :---------- | :----- | :---------------- | :-------------- |
 {1}
 
 '@
 
         foreach ($policy in $macOSFirewallPolicies) {
 
-                $policyName = $policy.Name
-                $portalLink = 'https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/DevicesMenu/~/configuration'
+            $policyName = Get-SafeMarkdown -Text $policy.name
+            $portalLink = 'https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/DevicesMenu/~/configuration'
 
             if ($policy.assignments -and $policy.assignments.Count -gt 0) {
                 $status = '✅ Assigned'
+                $assignmentTarget = Get-PolicyAssignmentTarget -Assignments $policy.assignments
             }
             else {
                 $status = '❌ Not assigned'
+                $assignmentTarget = 'None'
             }
+
             if ($policy.FirewallSettings) {
                 $firewallSettings = '✅ Enabled'
             }
             else {
                 $firewallSettings = '❌ Disabled'
             }
-            # Get assignment details for this specific policy
-            $assignmentTarget = 'None'
 
-            if ($policy.assignments -and $policy.assignments.Count -gt 0) {
-                $assignmentTarget = Get-PolicyAssignmentTarget -Assignments $policy.assignments
-            }
-
-            $tableRows += @"
-| [$(Get-SafeMarkdown($policyName))]($portalLink) | $status | $assignmentTarget | $firewallSettings `n
-"@
+            $tableRows += "| [$policyName]($portalLink) | $status | $assignmentTarget | $firewallSettings |`n"
         }
 
         # Format the template by replacing placeholders with values

@@ -23,6 +23,9 @@ function Set-TestMetadata {
 	.PARAMETER MinimumLicense
 		What minimum license(s) are required for this test?
 
+	.PARAMETER CompatibleLicense
+		What compatible license(s) are required for this test?
+
 	.PARAMETER Pillar
 		What pillar does the test belong to?
 
@@ -58,15 +61,23 @@ function Set-TestMetadata {
 		[string]
 		$Category,
 
-	[ValidateSet('Low', 'Medium', 'High')]
-	[string]
-	$ImplementationCost,
+		[ValidateSet('Low', 'Medium', 'High')]
+		[string]
+		$ImplementationCost,
 
-	[string[]]
-	$MinimumLicense,
+		[string[]]
+		$MinimumLicense,
 
-	[string]
-	$Pillar,		[ValidateSet('Low', 'Medium', 'High')]
+		[string[]]
+		$CompatibleLicense,
+
+		[string[]]
+		$Service,
+
+		[string]
+		$Pillar,
+
+		[ValidateSet('Critical', 'High', 'Medium', 'Low', 'Unranked')]
 		[string]
 		$RiskLevel,
 
@@ -112,7 +123,10 @@ function Set-TestMetadata {
 
 			$text = [System.Text.StringBuilder]::new()
 			$null = $text.AppendLine('[ZtTest(')
+			$activeKeys = $Definition.Keys | Where-Object { $null -ne $data[$_] }
 			foreach ($pair in $Definition.GetEnumerator()) {
+				# Skip null values entirely — don't write them to the attribute
+				if ($null -eq $data[$pair.Key]) { continue }
 				switch ($pair.Value) {
 					'string[]' {
 						$entries = foreach ($item in $data[$pair.Key]) {
@@ -132,7 +146,7 @@ function Set-TestMetadata {
 					}
 				}
 				$line = "`t$($pair.Key) = $($valueText),"
-				if ($pair.Key -eq $($Definition.Keys)[-1]) {
+				if ($pair.Key -eq $activeKeys[-1]) {
 					$line = $line.TrimEnd(',')
 				}
 				$null = $text.AppendLine($line)
@@ -206,16 +220,18 @@ function Set-TestMetadata {
 		#endregion Utility Functions
 
 		$properties = [ordered]@{
-			Category           = 'string'
-			ImplementationCost = 'string'
-			MinimumLicense     = 'string[]'
-			Pillar             = 'string'
-			RiskLevel          = 'string'
-			SfiPillar          = 'string'
-			TenantType         = 'string[]'
-			TestId             = 'int'
-			Title              = 'string'
-			UserImpact         = 'string'
+			Category           	= 'string'
+			ImplementationCost 	= 'string'
+			MinimumLicense     	= 'string[]'
+			CompatibleLicense  	= 'string[]'
+			Service            	= 'string[]'
+			Pillar             	= 'string'
+			RiskLevel          	= 'string'
+			SfiPillar          	= 'string'
+			TenantType         	= 'string[]'
+			TestId             	= 'int'
+			Title              	= 'string'
+			UserImpact         	= 'string'
 		}
 	}
 	process {

@@ -13,10 +13,90 @@ type SankeyNode = {
 
 type SankeyData = {
     nodes: SankeyNode[];
-    links: any[]; // replace with the actual type of links
+    links: {
+        source: string;
+        target: string;
+        value: number;
+    }[];
 };
 
-export const ZtResponsiveSankey = ({ isDark, data }: { isDark:boolean, data: SankeyData }) => {
+type SankeyLink = {
+    source: string;
+    target: string;
+    value: number | null;
+};
+
+type SankeyInputData = {
+    nodes: SankeyNode[];
+    links: SankeyLink[];
+};
+
+const isNonEmptyNodeId = (nodeId: string): boolean => typeof nodeId === 'string' && nodeId.trim().length > 0;
+
+const isRenderableLinkTopology = (link: SankeyLink): boolean =>
+    isNonEmptyNodeId(link.source) &&
+    isNonEmptyNodeId(link.target) &&
+    link.source !== link.target;
+
+// A Sankey link with a missing (null / non-numeric) value should not break the whole
+// graph when the rest of the links are valid. For an intermediate node the inbound flow
+// equals its outbound flow, so we reconstruct a missing link's value from the sum of the
+// target node's outgoing links (e.g. "User sign in -> Managed" = "Managed -> Compliant" +
+// "Managed -> Non-compliant"). Genuine zero values are preserved (and later filtered out),
+// only truly missing values are reconstructed; leaf links that cannot be reconstructed are
+// left as NaN and dropped by the downstream validity filter.
+const reconstructLinkValues = (links: SankeyLink[]): { source: string; target: string; value: number }[] => {
+    const toNumber = (value: number | null): number => (value == null ? NaN : Number(value));
+
+    return links
+        .filter(isRenderableLinkTopology)
+        .map(link => {
+        const numericValue = toNumber(link.value);
+        if (Number.isFinite(numericValue)) {
+            return { source: link.source, target: link.target, value: numericValue };
+        }
+
+        const targetOutflow = links.reduce((sum, candidate) => {
+            if (candidate.source !== link.target) {
+                return sum;
+            }
+            const candidateValue = toNumber(candidate.value);
+            return Number.isFinite(candidateValue) && candidateValue > 0 ? sum + candidateValue : sum;
+        }, 0);
+
+        return { source: link.source, target: link.target, value: targetOutflow > 0 ? targetOutflow : NaN };
+    });
+};
+
+export const ZtResponsiveSankey = ({ isDark, data }: { isDark:boolean, data: SankeyInputData }) => {
+    const validNodeIds = new Set(data.nodes.map(node => node.id).filter(isNonEmptyNodeId));
+    const sanitizedLinks = reconstructLinkValues(data.links)
+        .filter(link =>
+            validNodeIds.has(link.source) &&
+            validNodeIds.has(link.target) &&
+            Number.isFinite(link.value) &&
+            link.value > 0
+        );
+
+    const connectedNodeIds = new Set<string>();
+    for (const link of sanitizedLinks) {
+        connectedNodeIds.add(link.source);
+        connectedNodeIds.add(link.target);
+    }
+
+    const filteredData: SankeyData = {
+        nodes: data.nodes.filter(node => connectedNodeIds.has(node.id)),
+        links: sanitizedLinks
+    };
+
+    if (filteredData.links.length === 0 || filteredData.nodes.length === 0) {
+        return (
+            <div className={`flex h-full min-h-[8rem] w-full items-center justify-center px-4 text-center text-sm text-muted-foreground ${isDark ? 'sankey-dark-mode' : 'sankey-light-mode'}`}>
+                No data available.
+            </div>
+        );
+    }
+
     const theme = {
         tooltip: {
             container: {
@@ -39,7 +119,7 @@ export const ZtResponsiveSankey = ({ isDark, data }: { isDark:boolean, data: San
     return (
     <div className={`h-full w-full ${isDark ? 'sankey-dark-mode' : 'sankey-light-mode'}`}>
         <ResponsiveSankey
-        data={data}
+        data={filteredData}
         theme={theme}
         margin={{ top: 10, right: 10, bottom: 10, left: 10 }}
         align="justify"

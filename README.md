@@ -12,10 +12,16 @@ To learn more see [aka.ms/zerotrust/assessment](https://aka.ms/zerotrust/assessm
 Use PowerShell 7 to install, sign in and run the assessment against your tenant.
 
 ```powershell
-Install-Module ZeroTrustAssessment -Scope CurrentUser
+Install-PSResource -Name ZeroTrustAssessment -Scope CurrentUser
 Connect-ZtAssessment
 Invoke-ZtAssessment
 ```
+
+By default, `Invoke-ZtAssessment` now runs all current pillars: Identity, Devices, Network, Data, Infrastructure, SecOps, and AI. The `-Preview` switch is reserved for future preview-only features.
+
+## Infrastructure Pillar Scope
+
+Infrastructure pillar results are based on Microsoft Defender for Cloud recommendations and only include Azure subscriptions tagged with `ZeroTrustAssessment:Infrastructure`.
 
 ## Quicklinks
 
@@ -43,6 +49,8 @@ provided by the bot. You will only need to do this once across all repos using o
 This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
 For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
 contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for more details on how to contribute to this project.
 
 ## Trademarks
 

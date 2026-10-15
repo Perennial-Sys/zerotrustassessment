@@ -26,6 +26,7 @@ export interface TenantInfo {
   ConfigDeviceAppProtectionPolicies?: ConfigDeviceAppProtectionPolicies[] | null;
   DeviceOverview?: DeviceOverview | null;
   TenantOverview?: TenantOverview | null;
+  AgentOverview?: AgentOverview | null;
 }
 
 export interface ConfigWindowsEnrollment {
@@ -115,8 +116,16 @@ export interface TestResultSummaryData {
   IdentityTotal: number;
   DevicesPassed: number;
   DevicesTotal: number;
-  DataPassed: number;
-  DataTotal: number;
+  DataPassed?: number;
+  DataTotal?: number;
+  NetworkPassed?: number;
+  NetworkTotal?: number;
+  InfrastructurePassed?: number;
+  InfrastructureTotal?: number;
+  SecOpsPassed?: number;
+  SecOpsTotal?: number;
+  AIPassed?: number;
+  AITotal?: number;
 }
 export interface SankeyData {
   nodes: SankeyDataNode[];
@@ -140,12 +149,23 @@ export interface TenantOverview {
   DeviceCount: number;
   ManagedDeviceCount: number;
 }
+export interface AgentOverview {
+  TotalAgents: number | null;
+  ActiveUsers: number | null;
+}
 export interface DeviceOverview {
+  DeviceSummary: DeviceSummary | null;
   DesktopDevicesSummary: SankeyData | null;
   MobileSummary: SankeyData | null;
   ManagedDevices: ManagedDevices | null;
   DeviceCompliance: DeviceCompliance | null;
   DeviceOwnership: DeviceOwnership | null;
+}
+
+export interface DeviceSummary {
+  description: string;
+  totalDevices: number | null;
+  deviceOperatingSystemSummary: DeviceOperatingSystemSummary;
 }
 
 export interface DeviceOwnership {
@@ -218,7 +238,7 @@ export interface Test {
   TestImplementationCost: string;
   TestMinimumLicense?: string[] | null;
   TestSfiPillar: string | null;
-  TestPillar: string | null;
+  TestPillar: string | string[] | null;
   SkippedReason: string | null;
   TestResult: string;
   TestSkipped: string;
@@ -735,6 +755,7 @@ export const reportData: ZeroTrustAssessmentReport = {
       }
     ],
     "DeviceOverview": {
+      "DeviceSummary": null,
       "DesktopDevicesSummary": {
         "nodes": [
           {

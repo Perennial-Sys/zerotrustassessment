@@ -46,12 +46,15 @@ function Export-ZtTenantData {
 		[int]
 		$MaximumSignInLogQueryTime,
 
-		[ValidateSet('All', 'Identity', 'Devices')]
+		[ValidateSet('All', 'Identity', 'Devices', 'Network', 'Data', 'Infrastructure', 'SecOps', 'AI')]
 		[string]
 		$Pillar = 'All',
 
 		[int]
-		$ThrottleLimit = (Get-PSFConfigValue -FullName 'ZeroTrustAssessment.ThrottleLimit.Export' -Fallback 5)
+		$ThrottleLimit = (Get-PSFConfigValue -FullName 'ZeroTrustAssessment.ThrottleLimit.Export' -Fallback 5),
+
+		[string]
+		$LogsPath
 	)
 
 	#region Helper Functions
@@ -85,6 +88,7 @@ function Export-ZtTenantData {
 		Stop-PSFFunction -Message "Error resuming export! Previously exported data was created for another tenant then the currently connected one! Previous: $($previousTenantID) | Current: $($graphContext.TenantId)" -EnableException $true -Cmdlet $PSCmdlet
 	}
 	Set-ZtConfig -ExportPath $ExportPath -Property TenantID -Value $graphContext.TenantId
+	Set-ZtConfig -ExportPath $ExportPath -Property Pillar -Value $Pillar
 
 
 	# Data that may be inserted into configured exports with placeholders
@@ -98,7 +102,9 @@ function Export-ZtTenantData {
 		"%$_%"
 	})
 
-	$exportConfig = Import-PSFPowerShellDataFile -Path "$script:ModuleRoot\assets\export-tenant.config.psd1" -Psd1Mode Safe
+	$exportConfigPath = Join-Path $script:ModuleRoot 'assets' 'export-tenant.config.psd1'
+	Write-PSFMessage "Checking applicable exports for the current configuration... $exportConfigPath"
+	$exportConfig = Import-PSFPowerShellDataFile -Path $exportConfigPath -Psd1Mode Safe
 	$includedExports = @()
 	$applicableExports = foreach ($exportCfg in $exportConfig) {
 		if (-not $exportCfg.Name) {
@@ -109,7 +115,7 @@ https://github.com/microsoft/zerotrustassessment/issues
 "@ -Target $exportCfg -Tag config, error, fail, devfail
 			continue
 		}
-		if ($Pillar -notcontains 'All' -and $Pillar -notcontains $exportCfg.Pillar) { continue }
+		if ($Pillar -ne 'All' -and $exportCfg.Pillar -notcontains $Pillar) { continue }
 		if ($exportCfg.Environment -and $exportCfg.Environment -notcontains $azureEnvironment) { continue }
 		if ($exportCfg.IncludePlan -and $entraIDPlan -notin $exportCfg.IncludePlan) { continue }
 		if ($exportCfg.ExcludePlan -and $entraIDPlan -in $exportCfg.IncludePlan) { continue }
@@ -133,13 +139,22 @@ https://github.com/microsoft/zerotrustassessment/issues
 		$exportCfg
 	}
 
+	if (-not $applicableExports -or $applicableExports.Count -eq 0) {
+		Write-PSFMessage "No applicable exports found for the current configuration. Nothing to export."
+		return
+	}
+
 	try {
-		$workflow = Start-ZtTenantDataExport -ExportConfig $applicableExports -ThrottleLimit $ThrottleLimit -ExportPath $ExportPath
-		Wait-ZtTenantDataExport -Workflow $workflow
+		Write-PSFMessage "Starting Tenant Data Export to path: $ExportPath"
+		# Show $applicableExports
+		Write-PSFMessage "Applicable exports: $($applicableExports | ForEach-Object { $_.Name } | Sort-Object | Out-String)"
+
+		$workflow = Start-ZtTenantDataExport -ExportConfig $applicableExports -ThrottleLimit $ThrottleLimit -ExportPath $ExportPath -LogsPath $LogsPath
+		Wait-ZtTenantDataExport -Workflow $workflow -LogsPath $LogsPath
 	}
 	finally {
 		if ($workflow) {
-			Disable-PSFConsoleInterrupt
+			Invoke-ZtSafeConsoleInterruptToggle -Disable
 			$workflow | Stop-PSFRunspaceWorkflow
 
 			# Collect statistical data for later troubleshooting. Retrieve via Get-ZtExportStatistics
@@ -148,9 +163,11 @@ https://github.com/microsoft/zerotrustassessment/issues
 				$script:__ZtSession.ExportStatistics[$result.Name] = $result
 			}
 
-			$workflow | Remove-PSFRunspaceWorkflow
+			if (-not (Get-PSFConfigValue -FullName 'ZeroTrustAssessment.Debug.KeepWorkflows')) {
+				$workflow | Remove-PSFRunspaceWorkflow
+			}
 		}
 
-		Enable-PSFConsoleInterrupt
+		Invoke-ZtSafeConsoleInterruptToggle -Enable
 	}
 }

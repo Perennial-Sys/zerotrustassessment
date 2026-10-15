@@ -76,17 +76,18 @@
 	if ($cacheBlocked) { $DisableCache = $true }
 	$results = $null
 	$isBatch = $uri.AbsoluteUri.EndsWith('$batch')
-	$isInCache = $script:__ZtSession.GraphCache.Value.ContainsKey($Uri.AbsoluteUri)
 	$cacheKey = $Uri.AbsoluteUri
+	if ($Headers -and $Headers.Count -gt 0) {
+		$headerString = ($Headers.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join '&'
+		$cacheKey = "$cacheKey|$headerString"
+	}
+	$cachedResult = $script:__ZtSession.GraphCache.Value[$cacheKey]
 	$isMethodGet = $Method -eq 'GET'
 
-	if (-not $cacheBlocked -and -not $DisableCache -and -not $isBatch -and $isInCache -and $isMethodGet) {
-		# Don't read from cache for batch requests.
+	# Don't read from cache for batch requests.
+	if (-not $cacheBlocked -and -not $DisableCache -and -not $isBatch -and $cachedResult -and $isMethodGet) {
 		Write-PSFMessage "Using graph cache: $($cacheKey)" -Level Debug
-		$results = $script:__ZtSession.GraphCache.Value[$cacheKey]
-		if ($results) {
-			return $results
-		}
+		return $cachedResult
 	}
 
 	Write-PSFMessage "Invoking Graph: $($Uri.AbsoluteUri)" -Level Debug -Tag Graph
@@ -103,15 +104,21 @@
 	}
 
 	if (-not $isMethodGet) {
-		Invoke-MgGraphRequest -Method $Method -Uri $Uri -Headers $Headers -OutputType $OutputType -Body $Body
-		return
+		$graphOutputType = if ($OutputFilePath) { 'Json' } else { $OutputType }
+
+		$results = Invoke-ZtRetry -ScriptBlock { Invoke-MgGraphRequest -Method $Method -Uri $Uri -Headers $Headers -OutputType $graphOutputType -Body $Body }
+		if ($OutputFilePath) {
+			$filePath = Get-ExportJsonFilePath -Path $OutputFilePath -PageIndex $PageIndex
+			$results | Set-PSFFileContent -Path (New-Item -Path $filePath -Force) # Write raw results to disk
+			$results = $results | ConvertFrom-Json -Depth 100 # Convert back to PSObject
+		}
+
+		return $results
 	}
 
-	if ($OutputFilePath) {
-		$OutputType = 'Json' # Force JSON output if writing to file so we get the raw results
-	}
+	$graphOutputType = if ($OutputFilePath) { 'Json' } else { $OutputType }
 
-	$results = Invoke-MgGraphRequest -Method $Method -Uri $Uri -Headers $Headers -OutputType $OutputType # -Body $Body # Cannot use Body with GET in PS 5.1
+	$results = Invoke-ZtRetry -ScriptBlock { Invoke-MgGraphRequest -Method $Method -Uri $Uri -Headers $Headers -OutputType $graphOutputType } # -Body $Body # Cannot use Body with GET in PS 5.1
 	if ($OutputFilePath) {
 		$filePath = Get-ExportJsonFilePath -Path $OutputFilePath -PageIndex $PageIndex
 		$results | Set-PSFFileContent -Path (New-Item -Path $filePath -Force) # Write raw results to disk

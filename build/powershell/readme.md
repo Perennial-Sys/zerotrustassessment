@@ -4,15 +4,25 @@
 
 ### Install dependencies
 
-Lookup /src/powershell/ZeroTrustAssessment.psd1 and install all the required modules using `Install-Module <ModuleName>`.
+Lookup /src/powershell/ZeroTrustAssessment.psd1 and install all the required modules using `Install-PSResource <ModuleName>`.
 
 ### Import the module
 
 From the /src/powershell directory, run:
 
 ```powershell
-Import-Module ./src/powershell/ZeroTrustAssessment.psd1 -Force
+Import-Module ./ZeroTrustAssessment.psd1 -Force
 ```
+
+### Connect to a tenant
+
+From the /src/powershell directory, run:
+
+```powershell
+Connect-ZtAssessment
+```
+
+> Note: It is recommended to also add the account to Windows Hello when asked, because the module is signing-in into multiple services - MS Graph, Azure, Exchange Online, Intune, SharePoint and there will be multiple login prompts.
 
 ### Invoke-ZtAssessment tips
 
@@ -159,6 +169,14 @@ TestID Start               Duration         Success Error
 
 
 ## Building and publishing the module
+
+> Important: Install the prerequisites for build first
+
+```Powershell
+./build/powershell/Install-Prerequisites.ps1
+Install-Module -Name PackageManagement -Repository PSGallery -Force -AllowClobber
+Install-Module -Name PowerShellGet -Repository PSGallery -Force -AllowClobber
+```
 
 ### Create a preview build
 

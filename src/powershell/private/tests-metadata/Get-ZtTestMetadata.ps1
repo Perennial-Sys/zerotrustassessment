@@ -125,11 +125,11 @@ function Get-ZtTestMetadata {
 
 		# Case: Loaded through the module
 		if ($script:ModuleRoot) {
-			$testRoot = "$script:ModuleRoot\tests"
+			$testRoot = Join-Path $script:ModuleRoot 'tests'
 		}
 		# Case: Called Directly from the build tools
 		else {
-			$testRoot = "$PSScriptRoot\..\..\tests"
+			$testRoot = Join-Path $PSScriptRoot '..' '..' 'tests'
 		}
 	}
 	process {
@@ -161,6 +161,8 @@ function Get-ZtTestMetadata {
 				Category           = $null
 				ImplementationCost = $null
 				MinimumLicense     = $null
+				CompatibleLicense  = $null
+				Service            = $null
 				Pillar             = $null
 				RiskLevel          = $null
 				SfiPillar          = $null

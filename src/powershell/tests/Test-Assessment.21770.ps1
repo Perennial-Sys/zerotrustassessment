@@ -8,7 +8,8 @@ function Test-Assessment-21770 {
 	[ZtTest(
 		Category = 'Access control',
 		ImplementationCost = 'Low',
-		MinimumLicense = ('P1'),
+		CompatibleLicense = ('AAD_PREMIUM'),
+        Service = ('Graph'),
 		Pillar = 'Identity',
 		RiskLevel = 'Medium',
 		SfiPillar = 'Protect engineering systems',
@@ -32,7 +33,6 @@ function Test-Assessment-21770 {
 
     $inactiveRiskyApps = @()
     $otherApps = @()
-
     foreach($item in $results) {
         if([string]::IsNullOrEmpty($item.lastSignInDateTime) -and $item.IsRisky) {
             $inactiveRiskyApps += $item
